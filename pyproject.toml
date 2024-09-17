@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "minde"
+version = "0.0.1"
+authors = [
+  { name="Example Author", email="author@example.com" },
+]
+description = "A small example package"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "jax==0.4.30",
+    "pytorch-lightning==2.2.1",
+    "scikit-learn==1.5.0",
+    "torch==2.2.1",
+    "torchvision==0.17.1",
+    "tensorboard==2.17.0",
+    "notebook==7.2.1",
+    "jupyter==1.0.0",
+    "mutinfo @ git+https://github.com/VanessB/mutinfo"
+]
+
+
+[project.urls]
+Homepage = "https://github.com/pypa/sampleproject"
+Issues = "https://github.com/pypa/sampleproject/issues"
+
+[tool.black]
+line-length = 88
+target-version = ["py39", "py38", "py37", "py36", "py35"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+
+[tool.hatch.build.targets.wheel]
+packages = ["minde"]
