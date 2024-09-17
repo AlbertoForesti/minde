@@ -23,7 +23,10 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
     def __init__(self,args,gt=None,var_list = None):
                      
         super(MINDE, self).__init__()
+        
         if var_list ==None:
+            if not hasattr(args, 'dim'):
+                raise ValueError("If var_list is not given, the dimension of the variables must be given.")
             var_list = {"x" + str(i): args.dim for i in range(2)}
 
         self.args = args
@@ -42,7 +45,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         
         if self.args.arch == "mlp":
             self.score = UnetMLP_simple(dim=np.sum(self.sizes), init_dim=hidden_dim, dim_mults=[],
-                                        time_dim=hidden_dim, nb_var=len(var_list.keys()))
+                                        time_dim=hidden_dim, nb_var=2)
         else:
             raise NotImplementedError
         self.model_ema = EMA(self.score, decay=0.999) if self.args.use_ema else None
