@@ -96,7 +96,10 @@ class VP_SDE():
        
         x_t, Z, _, _ = self.sample(x_0=x_0, t=t)
 
-        x_t = mask_data_diffused * x_t + (1 - mask_data_diffused) * x_0
+        try:
+            x_t = mask_data_diffused * x_t + (1 - mask_data_diffused) * x_0
+        except:
+            raise ValueError(f"Shape mismatch x_t={x_t.shape} mask_data_diffused={mask_data_diffused.shape} x_0={x_0.shape}")
 
         x_t = x_t * (1 - mask_data_marg)+  torch.zeros_like(x_0, device=self.device) *mask_data_marg
 

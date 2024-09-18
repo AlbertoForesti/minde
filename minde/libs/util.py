@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import jax.numpy as jnp
 from copy import deepcopy
+from typing import Union
 from minde.scripts.helper import SynthetitcDataset
 
 
@@ -109,11 +111,17 @@ def get_samples(test_loader,device,N=10000):
                 data[var] = torch.cat([data[var], batch[var].to(device)])
     return {var: data[var][:N,:] for var in var_list}
 
+def _array_to_tensor(x, dtype=torch.float32):
+    if isinstance(x, jnp.ndarray):
+        x = np.array(x)
+    if not isinstance(x, np.ndarray):
+        raise TypeError("Input must be a numpy array or convertible to one.")
+    return torch.tensor(x, dtype=dtype)
 
-def numpy_to_dataset(x: np.array, y: np.array):
+def array_to_dataset(x: Union[np.array,jnp.array], y: Union[np.array,jnp.array]):
     
-    x = torch.tensor(x, dtype=torch.float32)
-    y = torch.tensor(y, dtype=torch.float32)
+    x = _array_to_tensor(x)
+    y = _array_to_tensor(y)
 
     dataset = SynthetitcDataset([x, y])
     return dataset

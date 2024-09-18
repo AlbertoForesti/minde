@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import pytorch_lightning as pl
 from minde.libs.SDE import VP_SDE
-from minde.libs.util import EMA,concat_vect, deconcat, marginalize_data, cond_x_data , get_samples, numpy_to_dataset
+from minde.libs.util import EMA,concat_vect, deconcat, marginalize_data, cond_x_data , get_samples, array_to_dataset
 from minde.libs.info_measures import mi_cond,mi_cond_sigma,mi_joint,mi_joint_sigma 
 from minde.models.mlp import UnetMLP_simple
 from torch.utils.data import DataLoader
@@ -54,7 +54,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                           var_sizes=self.sizes,type =self.args.type
                           )
     
-    def __call__(self, x: np.ndarray, y: np.ndarray, std: bool=False, eps: float=1e-5) -> float:
+    def __call__(self, x: np.ndarray, y: np.ndarray, std: bool=False, sigma: bool=False, eps: float=1e-5) -> float:
         """
         Estimate the value of mutual information between two random vectors
         using samples `x` and `y`.
@@ -67,6 +67,8 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             Samples from the second random vector.
         std : bool
             Calculate standard deviation.
+        sigma : bool
+            Return the estimate using the σ parameter.
 
         Returns
         -------
@@ -78,11 +80,8 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
 
         self._check_arguments(x, y)
 
-        self.var_list = {"x": x.shape[0], "y": y.shape[0]}
-        self.sizes = [x.shape[0], y.shape[0]]
-
-        data_set = numpy_to_dataset(x, y)
-        train_loader = DataLoader(data_set, batch_size=self.args.batch_size, shuffle=True)
+        data_set = array_to_dataset(x, y)
+        train_loader = DataLoader(data_set, batch_size=self.args.bs, shuffle=True)
 
         # Something like that:
         self.fit(train_loader)
@@ -94,17 +93,20 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         # Estimating...
         #
 
-        mean, std = self.compute_mi(data) # Not mean and sigma TODO: implement sigma
+        mean, mean_sigma, std_, std_sigma = self.compute_mi(data, return_std=True)
 
+        if sigma:
+            mean = mean_sigma
+            std_ = std_sigma
         if std:
-            # If std can be extracted from MINDE.
-            return mean, std
+            return mean, std_
         else:
             return mean
     
     def fit(self,train_loader,test_loader=None):
-        if test_loader == None:
-            test_loader = train_loader ## train and test on the same dataset
+
+        if test_loader is None:
+            test_loader = DataLoader(train_loader.dataset, batch_size=train_loader.batch_size, shuffle=False, num_workers=train_loader.num_workers)
         
         self.test_samples = get_samples(test_loader,device="cuda"if self.args.accelerator == "gpu" else "cpu")
         args = self.args
@@ -240,7 +242,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
 
 
 
-    def compute_mi(self, data=None, eps=1e-5):
+    def compute_mi(self, data=None, eps=1e-5, return_std=False):
         """
         Compute mutual information.
 
@@ -313,9 +315,17 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                                     sigma=self.args.sigma,
                                     importance_sampling=self.args.importance_sampling)
                 )
-            
+        mi = np.array(mi)
+        mi_sigma = np.array(mi_sigma)
+        # raise UserWarning(f"Shape of mi: {mi.shape}, shape of mi_sigma: {mi_sigma.shape}")
+        avg_mi = np.mean(mi)
+        avg_mi_sigma = np.mean(mi_sigma)
+        std_mi = np.std(mi)
+        std_mi_sigma = np.std(mi_sigma)
 
-        return np.mean(mi),np.mean(mi_sigma)
+        if return_std:
+            return avg_mi, std_mi, avg_mi_sigma, std_mi_sigma
+        return avg_mi, avg_mi_sigma
     
 
     def get_masks(self, var_list):
@@ -323,10 +333,10 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         Returns:
             dict , dict :  marginal masks, conditional masks 
         """
-        return {self.var_list[0]: torch.tensor([1,-1]).to(self.device),
-                self.var_list[1]: torch.tensor([-1,1]).to(self.device),
-                },{self.var_list[0]: torch.tensor([1,0]).to(self.device),
-                self.var_list[1]: torch.tensor([0,1]).to(self.device),
+        return {var_list[0]: torch.tensor([1,-1]).to(self.device),
+                var_list[1]: torch.tensor([-1,1]).to(self.device),
+                },{var_list[0]: torch.tensor([1,0]).to(self.device),
+                var_list[1]: torch.tensor([0,1]).to(self.device),
                 }
 
 
