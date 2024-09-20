@@ -36,12 +36,18 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         
         
         self.save_hyperparameters("args")
+        self.initialize_model()
+    
+    def initialize_model(self):
 
-        
-        if hasattr(args, 'hidden_dim')==False or args.hidden_dim == None:
+        """
+        Initialize the model.
+        """
+
+        if hasattr(self.args, 'hidden_dim')==False or self.args.hidden_dim == None:
             hidden_dim = self.calculate_hidden_dim()
         else:
-            hidden_dim = args.hidden_dim
+            hidden_dim = self.args.hidden_dim
         
         if self.args.arch == "mlp":
             self.score = UnetMLP_simple(dim=np.sum(self.sizes), init_dim=hidden_dim, dim_mults=[],
@@ -78,6 +84,8 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             Standard deviation of the estimate, or None if `std=False`
         """
 
+        self.initialize_model()
+
         self._check_arguments(x, y)
 
         data_set = array_to_dataset(x, y)
@@ -93,7 +101,10 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         # Estimating...
         #
 
-        mean, mean_sigma, std_, std_sigma = self.compute_mi(data, return_std=True)
+        mean, std_, mean_sigma, std_sigma = self.compute_mi(data, return_std=True)
+
+        print(f"Estimated MI: {mean} ± {std_}")
+        print(f"Estimated MI (σ): {mean_sigma} ± {std_sigma}")
 
         if sigma:
             mean = mean_sigma
