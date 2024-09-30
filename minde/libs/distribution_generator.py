@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional, Callable, Union
 from itertools import chain, combinations
 from functools import reduce
 from tqdm import tqdm
+from copy import deepcopy
 
 class Agent:
 
@@ -78,7 +79,9 @@ class EvolutionTask:
         """
         Mutates according to Gaussian mutation
         """
-        agent.params += np.random.normal(size = agent.params.shape, loc=self.loc, scale=self.scale)
+        new_agent = deepcopy(agent)
+        new_agent.params += np.random.normal(size = agent.params.shape, loc=self.loc, scale=self.scale)
+        return new_agent
 
     def mutual_information(self, pxy: np.array) -> float:
         """
@@ -149,6 +152,10 @@ class EvolutionTask:
             num_children = self.population_size-mu
         for _ in range(num_children):
             children.append(self.mutate(np.random.choice(parents)))
+        if self.strategy == 'comma':
+            self.agents = np.array(children)
+        else:
+            self.agents = np.concatenate((parents,children))
     
     def reset_fitness(self) -> None:
         for agent in self.agents:
@@ -162,17 +169,21 @@ class EvolutionTask:
         self.agents: List[Agent] = [Agent(self.dim_x, self.dim_y) for _ in range(self.population_size)]
         self.best_agent = None
         pbar = tqdm(range(n_generations))
+        self.compute_fitness()
         for gen in pbar:            
-            self.compute_fitness()
             self.best_agent = max(self.agents, key = lambda x: x.fitness)
             pbar.set_description(f"Best fitness: {self.best_agent.fitness}")
             if np.random.uniform(0,1) > np.power(gen/n_generations, temperature) or exploitation_only:
                 #exploitation
                 self.exploitation()
+                self.compute_fitness()
             if np.random.uniform(0,1) < np.power(gen/n_generations, temperature) and not exploitation_only:
                 #exploration
                 self.exploration()
-            self.best_agent = max(self.agents, key = lambda x: x.fitness)
+                self.compute_fitness()
+            best_agent = max(self.agents, key = lambda x: x.fitness)
+            if best_agent.fitness > self.best_agent.fitness:
+                self.best_agent = best_agent
             # print(self.best_agent.fitness)
     
     @property
