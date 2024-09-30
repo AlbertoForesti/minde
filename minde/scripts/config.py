@@ -67,5 +67,14 @@ def get_config():
                         help='Where to store the results')
     parser.add_argument('--benchmark', type=str, default="benchmark_name",
                         help='The name of the benchmark')
+    
+    parser.add_argument('--dim_x', type=int, required=True, help='Dimension X')
+    parser.add_argument('--dim_y', type=int, required=True, help='Dimension Y')
+    parser.add_argument('--n_samples', type=int, required=True, help='Number of samples')
+    parser.add_argument('--test_runs', type=int, required=True, help='Number of test runs')
+    parser.add_argument('--n_samples_test', type=int, required=True, help='Number of test samples')
+
+    parser.add_argument('--checkpoint_dir', type=str, default="minde/checkpoints")
+    
     return parser
 

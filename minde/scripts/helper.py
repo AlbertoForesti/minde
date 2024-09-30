@@ -28,9 +28,6 @@ class SynthetitcDataset(Dataset):
 
 def get_data_loader(args, task,batch_size= None):
 
-
-    
-
     size_train = args.Train_Size
     size_test = args.Test_Size
 

@@ -60,7 +60,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                           var_sizes=self.sizes,type =self.args.type
                           )
     
-    def __call__(self, x: np.ndarray, y: np.ndarray, std: bool=False, sigma: bool=False, eps: float=1e-5) -> float:
+    def __call__(self, x: np.ndarray, y: np.ndarray, std: bool=False, sigma: bool=False, all: bool=True, eps: float=1e-5) -> float:
         """
         Estimate the value of mutual information between two random vectors
         using samples `x` and `y`.
@@ -75,6 +75,8 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             Calculate standard deviation.
         sigma : bool
             Return the estimate using the σ parameter.
+        all : bool
+            Return all the estimates as a dictionary.
 
         Returns
         -------
@@ -105,6 +107,9 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
 
         print(f"Estimated MI: {mean} ± {std_}")
         print(f"Estimated MI (σ): {mean_sigma} ± {std_sigma}")
+
+        if all:
+            return {"mi": mean, "mi_std": std_, "mi_sigma": mean_sigma, "mi_sigma_std": std_sigma}
 
         if sigma:
             mean = mean_sigma
