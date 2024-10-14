@@ -55,8 +55,6 @@ def get_config():
 
     parser.add_argument('--nb_workers', type=int, default=8,
                         help='Nb workers for the dataloader')
-    parser.add_argument('--devices', type=int, default=1,
-                        help='gpu device to use')
     parser.add_argument('--accelerator', type=str,
                         default="gpu", help='gpu or cpu')
     parser.add_argument('--check_val_every_n_epoch', type=int, default=50,
@@ -75,6 +73,7 @@ def get_config():
     parser.add_argument('--n_samples_test', type=int, required=True, help='Number of test samples')
 
     parser.add_argument('--checkpoint_dir', type=str, default="minde/checkpoints")
+    parser.add_argument('--devices', type=str, default="2", help='gpu device to use')
     
     return parser
 

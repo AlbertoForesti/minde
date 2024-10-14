@@ -9,17 +9,26 @@ from minde.scripts.config import get_config
 jax.config.update('jax_platform_name', 'cpu')
 
 from mutinfo.distributions.base import UniformlyQuantized
+from sklearn.preprocessing import StandardScaler
 from scipy.stats import norm  # Used as a base distribution (to be quantized), you can use any other having a `cdf` method.
-from scipy.stats import bernoulli, poisson, binom, uniform, expon
+from scipy.stats import bernoulli, poisson, binom, uniform, expon, t
 
 parser = get_config()
 
-def evaluate_task(args, sampler):
+def evaluate_task(args, sampler, transformation=None):
 
-    X, Y = sampler.rvs(args.n_samples)
+    if sampler == "bernoulli":
+        X = bernoulli.rvs(p=0.5,size=args.n_samples)
+        Y = np.copy(X)
+    else:
+        X, Y = sampler.rvs(args.n_samples)
 
     X = X.reshape(-1, 1)
     Y = Y.reshape(-1, 1)
+
+    if transformation is not None:
+        X = transformation(X)
+        Y = transformation(Y)
 
     if X.shape[0] <= 5:
         args.max_epochs = 300
@@ -50,10 +59,21 @@ def evaluate_task(args, sampler):
 
         # Flatten the joint distribution
 
-        X, Y = sampler.rvs(args.n_samples_test, random_state = random_states[i])
+        if sampler == "bernoulli":
+            X = bernoulli.rvs(p=0.5,size=args.n_samples_test, random_state = random_states[i])
+            Y = np.copy(X)
+        else:
+            X, Y = sampler.rvs(args.n_samples_test, random_state = random_states[i])
 
         X = X.reshape(-1, 1)
         Y = Y.reshape(-1, 1)
+
+        if transformation is not None:
+            X = transformation(X)
+            Y = transformation(Y)
+
+        X = StandardScaler(copy=True).fit_transform(X)
+        Y = StandardScaler(copy=True).fit_transform(Y)
 
         data = {"x": torch.tensor(X, dtype=torch.float16).to(model.device), "y": torch.tensor(Y, dtype=torch.float16).to(model.device)}
 
@@ -67,34 +87,50 @@ def evaluate_task(args, sampler):
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()    
+    args = parser.parse_args()
 
-    samplers_dict = {
-        "bernoulli": UniformlyQuantized(1.0, bernoulli(0.5)),
-        "poisson": UniformlyQuantized(1.0, poisson(10, 0.5)),
-        "binomial": UniformlyQuantized(1.0, binom(10, 0.5)),
-        "uniform": UniformlyQuantized(1.0, uniform(0, 1)),
-        "expon": UniformlyQuantized(1.0, expon(1))
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.devices
+
+    return_dict = lambda x: {
+        # "uniform": UniformlyQuantized(x, uniform(0, 1)),
+        # "expon": UniformlyQuantized(x, expon(1)),
+        # "norm": UniformlyQuantized(x, X_dim=args.dim_x, Y_dim=args.dim_y, base_rv=norm(0, 1)),
+        "bernoulli": "bernoulli",
+        # "t-student 1dof": UniformlyQuantized(x, t(1)),
+        # "t-student 2dof": UniformlyQuantized(x, t(2)),
     }
     
     results_tasks = {}
 
     pl.seed_everything(args.seed)
 
-    for name, sampler in samplers_dict.items():
+    mutinfos = np.arange(0, 5.1, 1, dtype=float)
+    mutinfos = [np.log(2)]
+    # mutinfos = np.arange(0, 10.1, 0.5, dtype=float)
 
-        print(f"Sampler {name} with dimensions {args.dim_x} and {args.dim_y} mi: {1.0} ")
+    transformation = lambda x: np.arcsinh(x)
+    transformation = None
 
-        results = evaluate_task(args, sampler)
+    for info in mutinfos:
+        
+        samplers_dict = return_dict(info)
 
-        results_tasks[name] = {
-            "gt": 1.0,
-            "minde_estimate": results,
-            "minde type": args.type,
-            "importance_sampling": args.importance_sampling,
-            "arch": args.arch
-        }
-        print(results_tasks)
+        for name, sampler in samplers_dict.items():
+
+            print(f"Sampler {name} with dimensions {args.dim_x} and {args.dim_y} mi: {info} ")
+
+            results = evaluate_task(args, sampler, transformation)
+
+            exp_name = f"{name}_{args.dim_x}_{args.dim_y}_{info}"
+
+            results_tasks[exp_name] = {
+                "gt": info,
+                "minde_estimate": results,
+                "minde type": args.type,
+                "importance_sampling": args.importance_sampling,
+                "arch": args.arch
+            }
+            print(results_tasks)
 
     directory = args.results_dir
     if not os.path.exists(directory):
@@ -104,5 +140,5 @@ if __name__ == "__main__":
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
 
-    with open("{}/results_discrete.json".format(directory_path), 'w') as f:
+    with open("{}/results_bernoulli.json".format(directory_path), 'w') as f:
         json.dump(results_tasks, f)

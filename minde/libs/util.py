@@ -5,7 +5,9 @@ import jax.numpy as jnp
 from copy import deepcopy
 from typing import Union
 from minde.scripts.helper import SynthetitcDataset
+from sklearn.preprocessing import StandardScaler
 
+from tqdm import tqdm
 
 
 class EMA(nn.Module):
@@ -106,16 +108,20 @@ def get_samples(test_loader,device,N=10000):
     var_list = list(test_loader.dataset[0].keys())
     
     data = {var: torch.Tensor().to(device) for var in var_list}
-    for batch in test_loader:
+    for batch in tqdm(test_loader, desc="Getting samples", leave=False):
             for var in var_list:
                 data[var] = torch.cat([data[var], batch[var].to(device)])
     return {var: data[var][:N,:] for var in var_list}
 
-def _array_to_tensor(x, dtype=torch.float32):
+def _array_to_tensor(x, preprocessing="rescale", dtype=torch.float32):
     if isinstance(x, jnp.ndarray):
         x = np.array(x)
     if not isinstance(x, np.ndarray):
         raise TypeError("Input must be a numpy array or convertible to one.")
+    
+    if preprocessing == "rescale":
+        x = StandardScaler(copy=True).fit_transform(x)
+
     return torch.tensor(x, dtype=dtype)
 
 def array_to_dataset(x: Union[np.array,jnp.array], y: Union[np.array,jnp.array]):
