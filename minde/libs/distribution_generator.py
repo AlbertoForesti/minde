@@ -158,8 +158,7 @@ class EvolutionTask:
         if m_info == np.nan:
             print("Mutinfo is nan", m_info)
             return -np.inf
-        deviation_from_uniform = np.mean(np.abs(agent.distribution - 1/(self.dim_x*self.dim_y)))
-        return -np.abs(m_info-self.target_mutinfo)-deviation_from_uniform
+        return -np.abs(m_info-self.target_mutinfo)
     
     def exploration(self) -> None:
         """

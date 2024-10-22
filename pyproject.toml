@@ -17,14 +17,14 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "jax==0.4.30",
-    "pytorch-lightning==2.2.1",
-    "scikit-learn==1.5.0",
-    "torch==2.2.1",
-    "torchvision==0.17.1",
-    "tensorboard==2.17.0",
-    "notebook==7.2.1",
-    "jupyter==1.0.0",
+    "jax",
+    "pytorch-lightning",
+    "scikit-learn",
+    "torch",
+    "torchvision",
+    "tensorboard",
+    "notebook",
+    "jupyter",
     "numpy==1.26.4",
     "mutinfo @ git+https://github.com/VanessB/mutinfo"
 ]
