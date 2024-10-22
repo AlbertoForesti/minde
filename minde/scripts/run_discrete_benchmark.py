@@ -9,9 +9,15 @@ from minde.scripts.config import get_config
 jax.config.update('jax_platform_name', 'cpu')
 
 from mutinfo.distributions.base import UniformlyQuantized
+from mutinfo.distributions.tools import mapped_multi_rv_frozen
+from mutinfo.distributions.images.geometric import uniform_to_rectangle, draw_rectangle
+from mutinfo.distributions.images.field import symmetric_gaussian_field, draw_field
+
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import norm  # Used as a base distribution (to be quantized), you can use any other having a `cdf` method.
 from scipy.stats import bernoulli, poisson, binom, uniform, expon, t
+
+import ast
 
 parser = get_config()
 
@@ -20,11 +26,33 @@ def evaluate_task(args, sampler, transformation=None):
     if sampler == "bernoulli":
         X = bernoulli.rvs(p=0.5,size=args.n_samples)
         Y = np.copy(X)
+    elif sampler == "rectangle":
+        image_shape = ast.literal_eval(args.image_shape)
+        sampler = mapped_multi_rv_frozen(
+            UniformlyQuantized(1.0, 4, uniform(0,1)),
+            lambda x, y: (
+                draw_rectangle(uniform_to_rectangle(x, min_size=(0.2, 0.2)), image_shape),
+                draw_rectangle(uniform_to_rectangle(y, min_size=(0.2, 0.2)), image_shape)
+            )
+        )
+        X, Y = sampler.rvs(args.n_samples)
+    elif sampler == "symmetric_gaussian_fields":
+        image_shape = ast.literal_eval(args.image_shape)
+        sampler = mapped_multi_rv_frozen(
+            UniformlyQuantized(1.0, 4, uniform(0,1)),
+            lambda x, y: (
+                draw_field(x, symmetric_gaussian_field, image_shape),
+                draw_field(y, symmetric_gaussian_field, image_shape)
+            )
+        )
+        X, Y = sampler.rvs(args.n_samples)
     else:
         X, Y = sampler.rvs(args.n_samples)
+    
+    X = X.reshape(args.n_samples, -1)
+    Y = Y.reshape(args.n_samples, -1)
 
-    X = X.reshape(-1, 1)
-    Y = Y.reshape(-1, 1)
+    print("Shapes are", X.shape, Y.shape)
 
     if transformation is not None:
         X = transformation(X)
@@ -65,8 +93,8 @@ def evaluate_task(args, sampler, transformation=None):
         else:
             X, Y = sampler.rvs(args.n_samples_test, random_state = random_states[i])
 
-        X = X.reshape(-1, 1)
-        Y = Y.reshape(-1, 1)
+        X = X.reshape(args.n_samples_test, -1)
+        Y = Y.reshape(args.n_samples_test, -1)
 
         if transformation is not None:
             X = transformation(X)
@@ -95,7 +123,9 @@ if __name__ == "__main__":
         # "uniform": UniformlyQuantized(x, uniform(0, 1)),
         # "expon": UniformlyQuantized(x, expon(1)),
         # "norm": UniformlyQuantized(x, X_dim=args.dim_x, Y_dim=args.dim_y, base_rv=norm(0, 1)),
-        "bernoulli": "bernoulli",
+        # "bernoulli": "bernoulli",
+        # "rectangle": "rectangle",
+        "symmetric_gaussian_fields": "symmetric_gaussian_fields",
         # "t-student 1dof": UniformlyQuantized(x, t(1)),
         # "t-student 2dof": UniformlyQuantized(x, t(2)),
     }
@@ -104,8 +134,8 @@ if __name__ == "__main__":
 
     pl.seed_everything(args.seed)
 
-    mutinfos = np.arange(0, 5.1, 1, dtype=float)
-    mutinfos = [np.log(2)]
+    mutinfos = np.arange(0, 10.1, 1, dtype=float)
+    # mutinfos = [np.log(2)]
     # mutinfos = np.arange(0, 10.1, 0.5, dtype=float)
 
     transformation = lambda x: np.arcsinh(x)
@@ -140,5 +170,5 @@ if __name__ == "__main__":
     if not os.path.exists(directory_path):
         os.makedirs(directory_path)
 
-    with open("{}/results_bernoulli.json".format(directory_path), 'w') as f:
+    with open("{}/results_gaussian_fields_3x3.json".format(directory_path), 'w') as f:
         json.dump(results_tasks, f)

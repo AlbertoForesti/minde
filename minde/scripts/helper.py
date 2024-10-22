@@ -36,7 +36,6 @@ def get_data_loader(args, task,batch_size= None):
         X = preprocessing.StandardScaler(copy=True).fit_transform(X)
         Y = preprocessing.StandardScaler(copy=True).fit_transform(Y)
     
-    
     x_train , y_train =  X[:size_train,], Y[:size_train,]
     x_test , y_test =  X[size_train:,], Y[size_train:,]
     

@@ -74,6 +74,8 @@ def get_config():
 
     parser.add_argument('--checkpoint_dir', type=str, default="minde/checkpoints")
     parser.add_argument('--devices', type=str, default="2", help='gpu device to use')
+
+    parser.add_argument('--image_shape', type=str, default="[16,16]", help='Image shape')
     
     return parser
 
