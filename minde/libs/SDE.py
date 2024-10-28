@@ -2,8 +2,9 @@
 import torch
 import itertools
 import numpy as np
-from .util import *
 from .importance import *
+from .util import concat_vect, expand_mask
+from functools import reduce
 
 
 class VP_SDE():
@@ -48,14 +49,35 @@ class VP_SDE():
             (self.beta_max - self.beta_min) - 0.5 * t * self.beta_min
         mean = torch.exp(log_mean_coeff)
         std = torch.sqrt(1 - torch.exp(2 * log_mean_coeff))
-        return mean.view(-1, 1) * torch.ones_like(x, device=self.device), std.view(-1, 1) * torch.ones_like(x, device=self.device)
+        if len(x.shape) > 2:
+            mean = mean.view(-1,1)
+            std = std.view(-1,1)
+            for i in range(len(x.shape)-2):
+                mean = mean.unsqueeze(-1)
+                std = std.unsqueeze(-1)
+        elif len(x.shape) == 2:
+            mean = mean.view(-1,1)
+            std = std.view(-1,1)
+        else:
+            raise NotImplementedError("Shape not supported")
+        try:
+            ret = mean * torch.ones_like(x, device=self.device), std * torch.ones_like(x, device=self.device)
+        except:
+            raise ValueError(f"Shape mismatch mean={mean.shape} std={std.shape} x={x.shape}")
+        return ret
 
     def sample(self, x_0, t):
         ## Forward SDE
         # Sample from P(x_t | x_0) at time t. Returns A noisy version of x_0.
         mean, std = self.marg_prob(t, t)
         z = torch.randn_like(x_0, device=self.device)
-        x_t = x_0 * mean + std * z
+        for i in range(len(x_0.shape)-2):
+            mean = mean.unsqueeze(-1)
+            std = std.unsqueeze(-1)
+        try:
+            x_t = x_0 * mean + std * z
+        except:
+            raise ValueError(f"Shape mismatch x_0={x_0.shape} mean={mean.shape} std={std.shape} z={z.shape}")
         return x_t, z, mean, std
 
     def train_step(self, data, score_net, eps=1e-5):
@@ -93,13 +115,12 @@ class VP_SDE():
         mask_data_marg = (mask_data < 0).float()
         # Varaibles that will be diffused
         mask_data_diffused = mask_data.clip(0, 1)
-       
         x_t, Z, _, _ = self.sample(x_0=x_0, t=t)
 
         try:
             x_t = mask_data_diffused * x_t + (1 - mask_data_diffused) * x_0
         except:
-            raise ValueError(f"Shape mismatch x_t={x_t.shape} mask_data_diffused={mask_data_diffused.shape} x_0={x_0.shape}")
+            raise ValueError(f"Shape mismatch x_t={x_t.shape} mask_data_diffused={mask_data_diffused.shape} x_0={x_0.shape}, mask_data={mask_data.shape}, mask={mask.shape}, mask_data_marg={mask_data_marg.shape}")
 
         x_t = x_t * (1 - mask_data_marg)+  torch.zeros_like(x_0, device=self.device) *mask_data_marg
 
@@ -108,11 +129,20 @@ class VP_SDE():
         Z = Z * mask_data_diffused
 
         #Score matching of diffused data reweithed proportionnaly to the size of the diffused data.
+        
+        # Flatten the data
+        score = score.view(bs, -1)
+        mask_data_diffused = mask_data_diffused.view(bs, -1)
+        Z = Z.view(bs, -1)
+
         total_size = score.size(1)
         n_diff=torch.sum(mask_data_diffused, dim=1)
-        weight = (((total_size - n_diff) / total_size) + 1).view(bs, 1)
+        try:
+            weight = (((total_size - n_diff) / total_size) + 1).view(bs, 1)
+        except:
+            raise ValueError(f"Shape mismatch total_size={total_size} n_diff={n_diff.shape} bs={bs}")
         loss = (weight * (torch.square(score - Z))).sum(1, keepdim=False)/n_diff
-        
+
         return loss
 
 

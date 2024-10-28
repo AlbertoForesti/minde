@@ -2,6 +2,7 @@ from torch.utils.data import Dataset ,DataLoader
 import torch
 from sklearn import preprocessing
 from minde.scripts.config import get_config
+from minde.libs.preprocessing_utils import _array_to_tensor
 import numpy as np
 
 
@@ -22,7 +23,7 @@ class SynthetitcDataset(Dataset):
         return len(self.x)
 
     def __getitem__(self, idx):
-        return {"x":torch.FloatTensor(self.x[idx]) ,"y":torch.FloatTensor(self.y[idx]) }
+        return {"X":torch.FloatTensor(self.x[idx]) ,"Y":torch.FloatTensor(self.y[idx]) }
     
 
 
@@ -32,9 +33,8 @@ def get_data_loader(args, task,batch_size= None):
     size_test = args.Test_Size
 
     X, Y = task.sample(size_test+size_train, seed=args.seed)
-    if args.preprocessing == "rescale":
-        X = preprocessing.StandardScaler(copy=True).fit_transform(X)
-        Y = preprocessing.StandardScaler(copy=True).fit_transform(Y)
+    X = _array_to_tensor(X, args.preprocessing)
+    Y = _array_to_tensor(Y, args.preprocessing)
     
     x_train , y_train =  X[:size_train,], Y[:size_train,]
     x_test , y_test =  X[size_train:,], Y[size_train:,]

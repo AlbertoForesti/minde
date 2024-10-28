@@ -1,13 +1,16 @@
 import torch
 import torch.nn as nn
+from torchvision.transforms import Compose, Resize, Lambda, Normalize
 import numpy as np
 import jax.numpy as jnp
 from copy import deepcopy
 from typing import Union
 from minde.scripts.helper import SynthetitcDataset
 from sklearn.preprocessing import StandardScaler
+from collections.abc import Iterable
 
 from tqdm import tqdm
+from minde.libs.preprocessing_utils import _array_to_tensor
 
 
 class EMA(nn.Module):
@@ -37,13 +40,25 @@ def pop_elem_i(encodings , i =[]  ):
     } 
     
 def deconcat(z,var_list,sizes):
-    data = torch.split(z, sizes, dim=1)
+    try:
+        dim_0_sizes = []
+        for size in sizes:
+            if isinstance(size, Iterable):
+                dim_0_sizes.append(size[0])
+            else:
+                dim_0_sizes.append(size)
+        data = torch.split(z, dim_0_sizes, dim=1)
+    except:
+        raise ValueError(f"Size mismatch. Provided sizes are {sizes} but z has shape {z.shape}")
     return {var: data[i] for i, var in enumerate(var_list)}
 
 
 
 def concat_vect(encodings):
-    return torch.cat(list(encodings.values()),dim = -1)
+    if len(list(encodings.values())[0].shape) == 2:
+        return torch.cat(list(encodings.values()),dim = -1)
+    else:
+        return torch.cat(list(encodings.values()),dim = 1)
     
 
 
@@ -58,8 +73,11 @@ def cond_x_data(x_t,data,mod):
 
     x = x_t.copy()
     for k in x.keys():
-        if k !=mod:
-            x[k]=data[k] 
+        try:
+            if k !=mod:
+                x[k]=data[k] 
+        except:
+            raise ValueError(f"Key {k} not found in data. Available keys are {data.keys()}")
     return x
 
 
@@ -96,10 +114,21 @@ def minus_x_data(x_t, mod,fill_zeros=True):
                         x[k]=torch.rand_like(x_t[k] )
         return x
 
+def _expand_mask(mask, i, size):
+    # check that size is not iterable
+    if not hasattr(size, '__iter__'):
+        return mask[:, i].view(mask.shape[0], 1).expand(mask.shape[0], size)
+    else:
+        sizes = list(size)
+        expanded_mask = mask[:, i]
+        for i, s in enumerate(sizes):
+            expanded_mask = expanded_mask.unsqueeze(-1)
+        return expanded_mask.expand(mask.shape[0], *sizes)
+
 
 def expand_mask(mask, var_sizes):
         return torch.cat([
-            mask[:, i].view(mask.shape[0], 1).expand(mask.shape[0], size) for i, size in enumerate(var_sizes)
+            _expand_mask(mask, i, size) for i, size in enumerate(var_sizes)
         ], dim=1)
         
         
@@ -112,17 +141,6 @@ def get_samples(test_loader,device,N=10000):
             for var in var_list:
                 data[var] = torch.cat([data[var], batch[var].to(device)])
     return {var: data[var][:N,:] for var in var_list}
-
-def _array_to_tensor(x, preprocessing="rescale", dtype=torch.float32):
-    if isinstance(x, jnp.ndarray):
-        x = np.array(x)
-    if not isinstance(x, np.ndarray):
-        raise TypeError("Input must be a numpy array or convertible to one.")
-    
-    if preprocessing == "rescale":
-        x = StandardScaler(copy=True).fit_transform(x)
-
-    return torch.tensor(x, dtype=dtype)
 
 def array_to_dataset(x: Union[np.array,jnp.array], y: Union[np.array,jnp.array]):
     

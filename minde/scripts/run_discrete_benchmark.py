@@ -6,6 +6,7 @@ import json
 from .helper import *
 from minde.minde import MINDE
 from minde.scripts.config import get_config
+from minde.libs.preprocessing_utils import _array_to_tensor
 jax.config.update('jax_platform_name', 'cpu')
 
 from mutinfo.distributions.base import UniformlyQuantized
@@ -52,8 +53,6 @@ def evaluate_task(args, sampler, transformation=None):
     X = X.reshape(args.n_samples, -1)
     Y = Y.reshape(args.n_samples, -1)
 
-    print("Shapes are", X.shape, Y.shape)
-
     if transformation is not None:
         X = transformation(X)
         Y = transformation(Y)
@@ -68,7 +67,7 @@ def evaluate_task(args, sampler, transformation=None):
         args.bs = 256
     
 
-    var_list = {"x": X.shape[1], "y": Y.shape[1]}
+    var_list = {"X": X.shape[1], "Y": Y.shape[1]}
 
     model = MINDE(args, var_list=var_list).to("cuda")
 
@@ -100,10 +99,10 @@ def evaluate_task(args, sampler, transformation=None):
             X = transformation(X)
             Y = transformation(Y)
 
-        X = StandardScaler(copy=True).fit_transform(X)
-        Y = StandardScaler(copy=True).fit_transform(Y)
-
-        data = {"x": torch.tensor(X, dtype=torch.float16).to(model.device), "y": torch.tensor(Y, dtype=torch.float16).to(model.device)}
+        X = _array_to_tensor(X, args.preprocessing)
+        Y = _array_to_tensor(Y, args.preprocessing)
+        
+        data = {"X": torch.tensor(X, dtype=torch.float16).to(model.device), "Y": torch.tensor(Y, dtype=torch.float16).to(model.device)}
 
         results.append(model.compute_mi(data))
     res_mi = [r[0] for r in results]
@@ -123,9 +122,9 @@ if __name__ == "__main__":
         # "uniform": UniformlyQuantized(x, uniform(0, 1)),
         # "expon": UniformlyQuantized(x, expon(1)),
         # "norm": UniformlyQuantized(x, X_dim=args.dim_x, Y_dim=args.dim_y, base_rv=norm(0, 1)),
-        # "bernoulli": "bernoulli",
+        "bernoulli": "bernoulli",
         # "rectangle": "rectangle",
-        "symmetric_gaussian_fields": "symmetric_gaussian_fields",
+        # "symmetric_gaussian_fields": "symmetric_gaussian_fields",
         # "t-student 1dof": UniformlyQuantized(x, t(1)),
         # "t-student 2dof": UniformlyQuantized(x, t(2)),
     }

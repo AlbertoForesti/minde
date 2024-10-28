@@ -115,9 +115,7 @@ def get_data_loader(args, task, seed):
 
     X, Y = task.sample(size_test+size_train, seed=seed)
 
-    if args.preprocessing == "rescale":
-        X = preprocessing.StandardScaler(copy=True).fit_transform(X)
-        Y = preprocessing.StandardScaler(copy=True).fit_transform(Y)
+    X = _a
 
     x_train, y_train = X[:size_train,], Y[:size_train,]
     x_test, y_test = X[size_train:,], Y[size_train:,]

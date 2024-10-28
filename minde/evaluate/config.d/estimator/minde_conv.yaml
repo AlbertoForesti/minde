@@ -4,7 +4,7 @@ estimator:
   _target_: minde.minde.MINDE
   args:
     model:
-      arch: "mlp" # "conv"
+      arch: "conv" # "conv"
       use_ema: True
       preprocessing: "rescale"
       hidden_dim: null

@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from mlp import exists, default
+from minde.models.mlp import exists, default
 from functools import partial
 
 class Conv2DBlock(nn.Module):
@@ -25,7 +25,10 @@ class Conv2DBlock(nn.Module):
                 scale, shift = t
                 x = x * (scale.squeeze() + 1) + shift.squeeze()
             else:
-                x = x + t
+                try:
+                    x = x + t[...,None,None]
+                except:
+                    raise ValueError(f"Size mismatch. x size is {x.size()} and t size is {t.size()}")
 
         return x
 
@@ -44,8 +47,18 @@ class ResnetBlock(nn.Module):
         self.block2 = Conv2DBlock(dim_out, dim_out, groups=groups,
                             shift_scale=shift_scale)
         # self.res_conv = nn.Conv1d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
-        self.lin_layer = nn.Linear(
-            dim, dim_out) if dim != dim_out else nn.Identity()
+        """self.lin_layer = nn.Linear(
+            dim, dim_out) if dim != dim_out else nn.Identity()"""
+        
+        if dim != dim_out:
+            stride = 1
+            self.projection = nn.Sequential(
+                nn.Conv2d(dim, dim_out, kernel_size=1, stride=stride),
+                nn.BatchNorm2d(dim_out),
+                nn.SiLU()
+            )
+        else:
+            self.projection = nn.Identity()
 
     def forward(self, x, time_emb=None):
 
@@ -59,7 +72,12 @@ class ResnetBlock(nn.Module):
 
         h = self.block2(h)
 
-        return h + self.lin_layer(x)
+        x = self.projection(x)
+
+        try:
+            return h + x
+        except:
+            raise ValueError(f"Size mismatch. h size is {h.size()} and x size is {x.size()}")
 
 class UnetConv2D_simple(nn.Module):
     def __init__(
@@ -85,7 +103,7 @@ class UnetConv2D_simple(nn.Module):
 
         block_klass = partial(ResnetBlock, groups=resnet_block_groups)
 
-        self.init_lin = nn.Linear(dim, init_dim)
+        self.init_lin = nn.Conv2d(dim, init_dim, 1)
 
         self.time_mlp = nn.Sequential(
             nn.Linear(nb_var, time_dim),
@@ -132,19 +150,15 @@ class UnetConv2D_simple(nn.Module):
         self.final_res_block = block_klass(
             init_dim * 2, init_dim, time_emb_dim=time_dim)
 
-        self.proj = nn.Linear(init_dim, dim)
-
-        self.proj.weight.data.fill_(0.0)
-        self.proj.bias.data.fill_(0.0)
-
-        self.final_lin = nn.Sequential(
-            nn.GroupNorm(resnet_block_groups, init_dim),
-            nn.SiLU(),
-            self.proj
-        )
+        self.final_lin = Conv2DBlock(init_dim, dim, groups=8)
 
     def forward(self, x, t=None, std=None):
         t = t.reshape(t.size(0), self.nb_var)
+
+        if len(x.shape) == 3:
+            x = x.unsqueeze(1) # Add channel dimension for greyscale images
+        elif len(x.shape) != 4:
+            raise ValueError("Input tensor must be 3D or 4D")
 
         x = self.init_lin(x.float())
 

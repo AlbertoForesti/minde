@@ -35,9 +35,8 @@ def register_values(values):
         
 
 
-@hydra.main(version_base=None, config_path="./config.d", config_name="config")
+@hydra.main(version_base=None, config_path="./config.d", config_name="config_image_tests")
 def run_test(config : DictConfig) -> None:
-    # try:
     bebeziana.seed_everything(config["seed"], to_be_seeded=config["to_be_seeded"])
 
     # Resolving some parts of the config and storing them separately for later post-processing.
@@ -68,9 +67,6 @@ def run_test(config : DictConfig) -> None:
     with open(path / "results.yaml", 'w') as file:
         yaml.dump(results, file, default_flow_style=False)
     print("Experiment completed successfully.")
-    """
-    except Exception as exception:
-        print(exception) # Just ignoring exceptions so the sweeping continues."""
 
 
 

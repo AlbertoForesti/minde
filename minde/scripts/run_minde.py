@@ -27,7 +27,7 @@ def evaluate_task(args, sampler_task):
     args.benchmark =sampler_task.name 
     
     train_l,test_l = get_data_loader(args,sampler_task)
-    minde = MINDE(args,var_list={"x":sampler_task.dim_x,"y":sampler_task.dim_y}, gt = sampler_task.mutual_information)
+    minde = MINDE(args,var_list={"X":sampler_task.dim_x,"Y":sampler_task.dim_y}, gt = sampler_task.mutual_information)
     minde.fit(train_l,test_l)
 
     
