@@ -83,7 +83,6 @@ def mi_joint_sigma( s_joint ,s_cond_x,s_cond_y,x_t,y_t,mean,std, g ,sigma,import
     ref_score_xy =  torch.cat([ref_score_x,ref_score_y],dim=1)
 
     ## the same as ref_score_xy = - torch.cat([x_t,y_t],dim=1)/chi_t
-    
     if importance_sampling:
         const = get_normalizing_constant((1,)).to(g.device)
         e_joint = -const *0.5* ((s_joint - std * ref_score_xy  )**2).sum()/ M

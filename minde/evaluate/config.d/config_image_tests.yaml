@@ -1,4 +1,4 @@
-n_runs: 10
+n_runs: 1
 seed: 42
 to_be_seeded:
   - basic
@@ -17,6 +17,6 @@ hydra:
   sweeper:
     max_batch_size: 100 # Makes startup faster, see https://github.com/facebookresearch/hydra/issues/1324.
     params:
-      ++distribution.base_rv.mutual_information: 5.0
-      ++n_samples: 10000
+      ++distribution.base_rv.mutual_information: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0
+      ++n_samples: 100000
       ++estimator.args.inference.type: c

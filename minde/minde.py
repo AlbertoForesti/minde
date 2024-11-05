@@ -1,12 +1,15 @@
 import numpy as np
 import torch
+import torchvision
 import pytorch_lightning as pl
 from minde.libs.SDE import VP_SDE
 from minde.libs.util import EMA,concat_vect, deconcat, marginalize_data, cond_x_data , get_samples, array_to_dataset
 from minde.libs.info_measures import mi_cond,mi_cond_sigma,mi_joint,mi_joint_sigma 
 from minde.models.mlp import UnetMLP_simple
 from minde.models.conv import UnetConv2D_simple
-from torch.utils.data import DataLoader
+from minde.models.unet import UNet
+from torch.utils.data import TensorDataset, DataLoader
+from minde.scripts.helper import SynthetitcDataset
 
 from mutinfo.estimators.base import MutualInformationEstimator
 
@@ -48,6 +51,9 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         elif self.args.model.arch == "conv": 
             self.score = UnetConv2D_simple(dim=sum(map(lambda x: x[0], self.sizes)), init_dim=hidden_dim, dim_mults=[], 
                                            time_dim=hidden_dim, nb_var=2)
+        elif self.args.model.arch == "unet":
+            assert self.sizes[0] == self.sizes[1], "The input variables must have the same size for the UNet architecture."
+            self.score = UNet(sample_size=self.sizes[0], in_channels=2, out_channels=2, latent_dim=hidden_dim)
         else:
             raise NotImplementedError
         self.model_ema = EMA(self.score, decay=0.999) if self.args.model.use_ema else None
@@ -90,9 +96,16 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         mutual_information_std : float or None
             Standard deviation of the estimate, or None if `std=False`
         """
-        
-        x_size = self.get_var_size(x)
-        y_size = self.get_var_size(y)
+
+        if self.args.model.arch == "mlp":
+            x = x.reshape(x.shape[0], -1)
+            y = y.reshape(y.shape[0], -1)
+
+        try:
+            x_size = self.get_var_size(x)
+            y_size = self.get_var_size(y)
+        except:
+            raise ValueError("Expected x and y to be numpy arrays, instead got {} and {}".format(type(x), type(y)))
 
         self.var_list = {"X": x_size, "Y": y_size}
         self.sizes = list(self.var_list.values())
@@ -116,7 +129,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         # Estimating...
         #
 
-        mi, mi_sigma = self.compute_mi(data, return_std=True)
+        mi, mi_sigma = self.compute_mi(data)
 
         print(f"Estimated MI: {np.mean(mi)} ± {np.std(mi)}")
         print(f"Estimated MI (σ): {np.mean(mi_sigma)} ± {np.std(mi_sigma)}")
@@ -138,7 +151,6 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                          devices=self.args.training.devices,
                          max_epochs=self.args.training.max_epochs, # profiler="pytorch",
                          check_val_every_n_epoch=self.args.training.check_val_every_n_epoch)  
-        print("Starting training")
         trainer.fit(model=self, train_dataloaders=train_loader,
                 val_dataloaders=test_loader)
     
@@ -154,9 +166,17 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
 
     def validation_step(self, batch, batch_idx):
         self.eval()
-        loss = self.sde.train_step(batch, self.score_forward).mean()
-        self.log("loss_test", loss)
-        return {"loss": loss}
+        with torch.no_grad():
+            loss = self.sde.train_step(batch, self.score_forward).mean()
+            samples = self.sde.generate_samples(self.score_inference, bs=4)
+            samples = samples[:,0].unsqueeze(1)
+            images = samples / 2 + 0.5 # [-1,+1] -> [0,1]
+            images = (images * 255.0) # [0,1] -> [0,255]
+            images = images.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
+            grid = torchvision.utils.make_grid(samples)  # Create a grid of images
+            self.logger.experiment.add_image("Generated Samples", grid, self.current_epoch)
+            self.log("loss_test", loss)
+            return {"loss": loss}
 
     def on_before_backward(self, loss: torch.Tensor) -> None:
         if self.model_ema:
@@ -192,6 +212,20 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             t = t* (1-marg) + 1 * marg
 
             return self.score(x, t=t, std=std)
+        
+        elif self.args.model.arch == "unet":
+            t = t.expand(t.shape[0],mask.size(-1)) 
+          
+            marg = (- mask).clip(0, 1) ## max <0 
+            cond = 1 - (mask.clip(0, 1)) - marg  ##mask ==0
+             
+            t = t * (1- cond)  + 0.0 * cond
+            t = t* (1-marg) + 1 * marg
+
+            return self.score(x, timestep=t)
+        
+        else:
+            raise NotImplementedError
 
 
     def score_inference(self, x, t=None, mask=None, std=None):
@@ -224,6 +258,18 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
 
                 
                 return score(x, t=t, std=std)
+            elif self.args.model.arch == "unet":
+                t = t.expand(t.shape[0],mask.size(-1)) 
+            
+                marg = (- mask).clip(0, 1) ## max <0 
+                cond = 1 - (mask.clip(0, 1)) - marg  ##mask ==0
+                
+                t = t * (1- cond)  + 0.0 * cond
+                t = t* (1-marg) + 1 * marg
+
+                return self.score(x, timestep=t)
+            else:
+                raise NotImplementedError
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.score.parameters(), lr=self.args.training.lr)
@@ -261,7 +307,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
 
 
 
-    def compute_mi(self, data=None, eps=1e-5, return_std=False):
+    def compute_mi(self, data=None, eps=1e-5):
         """
         Compute mutual information.
 
@@ -282,59 +328,63 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         data_0 = {x_i: data[x_i].to(self.device) for x_i in var_list}
         z_0 = concat_vect(data_0)
 
-        N = len(self.sizes)
-        M = z_0.shape[0]
-
         mi = []
         mi_sigma = []
+
+        dataset = SynthetitcDataset(data_0)
+
+        dataloader = DataLoader(dataset, batch_size=self.args.inference.bs, shuffle=False)
+
+        for batch in dataloader:
+            z_0 = concat_vect(batch)
+            M = z_0.shape[0]
         
-        marg_masks, cond_mask = self.get_masks(var_list)
+            marg_masks, cond_mask = self.get_masks(var_list)
 
-
-        for i in range(self.args.inference.mc_iter):
-            # Sample t
-            if self.args.inference.importance_sampling:
-                t = (self.sde.sample_importance_sampling_t(
-                    shape=(M, 1))).to(self.device)
-            else:
-                t = ((self.sde.T - eps) * torch.rand((M, 1)) + eps).to(self.device)
-            _, g = self.sde.sde(t)
-            # Sample from the SDE (pertrbe the data with noise at time)
-            z_t, _, mean, std = self.sde.sample(z_0, t=t)
-            
-            std_w = None if self.args.inference.importance_sampling else std 
-            z_t = deconcat(z_t, self.var_list, self.sizes)
-
-            
-            if self.args.inference.type =="c":
-              
-                s_marg, s_cond = self.infer_scores(z_t,t, data_0, std_w, marg_masks, cond_mask)
-                mi.append(
-                    mi_cond(s_marg=s_marg,s_cond=s_cond,g=g,importance_sampling=self.args.inference.importance_sampling)
-                )
-                mi_sigma.append(
-                     mi_cond_sigma(s_marg=s_marg,s_cond=s_cond,
-                                   g=g,mean=mean,std=std,x_t= z_t[self.var_list[0]],sigma=self.args.inference.sigma,
-                                   importance_sampling=self.args.inference.importance_sampling)
-                )
+            for i in range(self.args.inference.mc_iter):
+                # Sample t
+                if self.args.inference.importance_sampling:
+                    t = (self.sde.sample_importance_sampling_t(
+                        shape=(M, 1))).to(self.device)
+                else:
+                    t = ((self.sde.T - eps) * torch.rand((M, 1)) + eps).to(self.device)
+                _, g = self.sde.sde(t)
+                # Sample from the SDE (pertrbe the data with noise at time)
+                z_t, _, mean, std = self.sde.sample(z_0, t=t)
                 
-            elif self.args.inference.type=="j":
-                s_joint, s_cond_x,s_cond_y = self.infer_scores(z_t,t, data_0, std_w, marg_masks, cond_mask)
-                mi.append(
-                    mi_joint(s_joint=s_joint,
-                                    s_cond_x=s_cond_x,
-                                    s_cond_y=s_cond_y,g=g,importance_sampling=self.args.inference.importance_sampling)
-                )
-                mi_sigma.append(
-                     mi_joint_sigma(s_joint=s_joint,
-                                    s_cond_x=s_cond_x,
-                                    s_cond_y=s_cond_y,
-                                    x_t=z_t[self.var_list[0]],
-                                    y_t=z_t[self.var_list[1]] ,
-                                    g=g,mean=mean,std=std,
-                                    sigma=self.args.inference.sigma,
+                std_w = None if self.args.inference.importance_sampling else std 
+                z_t = deconcat(z_t, self.var_list, self.sizes)
+
+                
+                if self.args.inference.type =="c":
+                
+                    s_marg, s_cond = self.infer_scores(z_t,t, batch, std_w, marg_masks, cond_mask)
+                    mi.append(
+                        mi_cond(s_marg=s_marg,s_cond=s_cond,g=g,importance_sampling=self.args.inference.importance_sampling)
+                    )
+                    mi_sigma.append(
+                        mi_cond_sigma(s_marg=s_marg,s_cond=s_cond,
+                                    g=g,mean=mean,std=std,x_t= z_t[self.var_list[0]],sigma=self.args.inference.sigma,
                                     importance_sampling=self.args.inference.importance_sampling)
-                )
+                    )
+                    
+                elif self.args.inference.type=="j":
+                    s_joint, s_cond_x,s_cond_y = self.infer_scores(z_t,t, batch, std_w, marg_masks, cond_mask)
+                    mi.append(
+                        mi_joint(s_joint=s_joint,
+                                        s_cond_x=s_cond_x,
+                                        s_cond_y=s_cond_y,g=g,importance_sampling=self.args.inference.importance_sampling)
+                    )
+                    mi_sigma.append(
+                        mi_joint_sigma(s_joint=s_joint,
+                                        s_cond_x=s_cond_x,
+                                        s_cond_y=s_cond_y,
+                                        x_t=z_t[self.var_list[0]],
+                                        y_t=z_t[self.var_list[1]] ,
+                                        g=g,mean=mean,std=std,
+                                        sigma=self.args.inference.sigma,
+                                        importance_sampling=self.args.inference.importance_sampling)
+                    )
         return np.mean(mi), np.mean(mi_sigma)
     
 
@@ -352,7 +402,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
 
     def calculate_hidden_dim(self):
         # return dimensions for the hidden layers
-        if self.args.model.arch == "mlp" or self.args.model.arch == "conv":
+        if self.args.model.arch == "mlp" or self.args.model.arch == "conv" or self.args.model.arch == "unet":
             dim = np.sum(self.sizes)
             if dim <= 10:
                 hidden_dim = 64
@@ -362,16 +412,18 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                 hidden_dim = 256
             return hidden_dim
         
-
-
-
     def logger_estimates(self):
-        mi, mi_sigma = self.compute_mi(data=self.test_samples)
-        print("Epoch: ",self.current_epoch," GT: ",np.round( self.gt, decimals=3 )  if self.gt != None else "Not given", "MINDE_estimate: ",np.round( mi, decimals=3 ),"MINDE_sigma_estimate: ",np.round( mi_sigma, decimals=3 ) )
+        with torch.no_grad():
+            self.eval()
+            self.score.eval()
+            mi, mi_sigma = self.compute_mi(data=self.test_samples)
+            print("Epoch: ",self.current_epoch," GT: ",np.round( self.gt, decimals=3 )  if self.gt != None else "Not given", "MINDE_estimate: ",np.round( mi, decimals=3 ),"MINDE_sigma_estimate: ",np.round( mi_sigma, decimals=3 ) )
 
-        self.logger.experiment.add_scalars('Measures/mi',
+            self.logger.experiment.add_scalars('Measures/mi',
                                                    {'gt': self.gt if self.gt != None else 0,
                                                     'minde': np.mean(mi),"minde_sigma":np.mean(mi_sigma),
                                                     }, global_step=self.global_step)
+            self.train()
+            self.score.train()
 
     

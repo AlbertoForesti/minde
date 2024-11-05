@@ -16,14 +16,26 @@ class SynthetitcDataset(Dataset):
     """Face Landmarks dataset."""
 
     def __init__(self, data):
-        self.x = data [0]
-        self.y = data [1]
+        if isinstance(data, dict):
+            self.x = data["X"]
+            self.y = data["Y"]
+        else:
+            self.x = data[0]
+            self.y = data[1]
 
     def __len__(self):
         return len(self.x)
 
     def __getitem__(self, idx):
-        return {"X":torch.FloatTensor(self.x[idx]) ,"Y":torch.FloatTensor(self.y[idx]) }
+        x = self.x[idx]
+        y = self.y[idx]
+
+        if not isinstance(x, torch.Tensor):
+            x = torch.FloatTensor(x).to(x.device)
+        if not isinstance(y, torch.Tensor):
+            y = torch.FloatTensor(y).to(y.device)
+        
+        return {"X":self.x[idx] ,"Y":self.y[idx]}
     
 
 

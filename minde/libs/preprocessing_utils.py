@@ -19,5 +19,4 @@ def _array_to_tensor(x, preprocessing="rescale", dtype=torch.float32):
             if len(x.shape) == 3:
                 x = x.unsqueeze(1) # Add channel dimension for greyscale images
             return x
-
     return torch.tensor(x, dtype=dtype)

@@ -10,6 +10,7 @@ from tqdm import trange
 import yaml
 
 import bebeziana
+import torch
 
 
 def ndarray_representer(dumper: yaml.Dumper, array: numpy.ndarray) -> yaml.Node:
@@ -54,6 +55,7 @@ def run_test(config : DictConfig) -> None:
 
         x, y = random_variable.rvs(config["n_samples"])
         results["mutual_information"]["values"].append(estimator(x, y))
+        torch.cuda.empty_cache()
 
     values, mean, std = register_values(results["mutual_information"]["values"])
 

@@ -146,6 +146,5 @@ def array_to_dataset(x: Union[np.array,jnp.array], y: Union[np.array,jnp.array])
     
     x = _array_to_tensor(x)
     y = _array_to_tensor(y)
-
     dataset = SynthetitcDataset([x, y])
     return dataset

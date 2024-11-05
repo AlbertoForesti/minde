@@ -7,9 +7,9 @@ estimator:
       arch: "mlp" # "conv"
       use_ema: True
       preprocessing: "rescale"
-      hidden_dim: null
+      hidden_dim: 32
     training:
-      lr: 0.01
+      lr: 1e-5
       bs: 512
       max_epochs: 500
       test_epoch: 50
@@ -17,10 +17,11 @@ estimator:
       accelerator: "gpu"
       warmup_epochs: 0
       check_val_every_n_epoch: 50
-      checkpoint_dir: "minde/checkpoints"
+      checkpoint_dir: "minde/checkpoints_mlp"
       devices: 1
     inference:
       type: "j"
       mc_iter: 10
       importance_sampling: False
       sigma: 1.0
+      bs: 512

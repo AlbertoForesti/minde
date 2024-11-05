@@ -1,10 +1,12 @@
 
 import torch
+import math
 import itertools
 import numpy as np
 from .importance import *
 from .util import concat_vect, expand_mask
 from functools import reduce
+from diffusers.utils.torch_utils import randn_tensor
 
 
 class VP_SDE():
@@ -122,10 +124,12 @@ class VP_SDE():
         except:
             raise ValueError(f"Shape mismatch x_t={x_t.shape} mask_data_diffused={mask_data_diffused.shape} x_0={x_0.shape}, mask_data={mask_data.shape}, mask={mask.shape}, mask_data_marg={mask_data_marg.shape}")
 
-        x_t = x_t * (1 - mask_data_marg)+  torch.zeros_like(x_0, device=self.device) *mask_data_marg
-
-       
-        score = score_net(x_t, t=t, mask=mask, std=None) * mask_data_diffused
+        x_t = x_t * (1 - mask_data_marg) + torch.zeros_like(x_0, device=self.device) *mask_data_marg
+        output = score_net(x_t, t=t, mask=mask, std=None)
+        try:
+            score = output * mask_data_diffused
+        except:
+            raise ValueError(f"Shape mismatch output={output.shape} mask_data_diffused={mask_data_diffused.shape}")
         Z = Z * mask_data_diffused
 
         #Score matching of diffused data reweithed proportionnaly to the size of the diffused data.
@@ -178,7 +182,67 @@ class VP_SDE():
                     masks_w.append(s)
         np.random.shuffle(masks_w)
         return np.array(masks_w)
+    
+    def step_pred(self, score, x, t, generator=None):
+        """
+        Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
+        process from the learned model outputs (most often the predicted noise).
 
+        Args:
+            score ():
+            x ():
+            t ():
+            generator (`torch.Generator`, *optional*):
+                A random number generator.
+        """
+        if self.timesteps is None:
+            raise ValueError(
+                "`self.timesteps` is not set, you need to run 'set_timesteps' after creating the scheduler"
+            )
+
+        # TODO(Patrick) better comments + non-PyTorch
+        # postprocess model score
+        log_mean_coeff = -0.25 * t**2 * (self.beta_max - self.beta_min) - 0.5 * t * self.beta_min
+        std = torch.sqrt(1.0 - torch.exp(2.0 * log_mean_coeff))
+        std = std.flatten()
+        while len(std.shape) < len(score.shape):
+            std = std.unsqueeze(-1)
+        score = -score / std
+
+        # compute
+        dt = -1.0 / len(self.timesteps)
+
+        beta_t = self.beta_min + t * (self.beta_max - self.beta_min)
+        beta_t = beta_t.flatten()
+        while len(beta_t.shape) < len(x.shape):
+            beta_t = beta_t.unsqueeze(-1)
+        drift = -0.5 * beta_t * x
+
+        diffusion = torch.sqrt(beta_t)
+        drift = drift - diffusion**2 * score
+        x_mean = x + drift * dt
+
+        # add noise
+        noise = randn_tensor(x.shape, layout=x.layout, generator=generator, device=x.device, dtype=x.dtype)
+        x = x_mean + diffusion * math.sqrt(-dt) * noise
+
+        return x, x_mean
+    
+    def generate_samples(self, score_net, bs=512, steps = 100):
+        """
+        Generate samples from the SDE model.
+        """
+        dt = self.T / steps
+        sizes = [2, 16, 16]
+        x = torch.randn(bs, *sizes, device=self.device)
+        self.timesteps = torch.linspace(self.T, 0, steps + 1, device=self.device)
+        for i in range(steps):
+            t = self.T - i * dt
+            t = torch.ones(bs, 1, device=self.device) * t
+            score = score_net(x, t=t, mask=torch.tensor([1,1], device=self.device), std=None)
+            x, x_mean = self.step_pred(score, x, t)
+        return x_mean
+    
     def sample_importance_sampling_t(self, shape):
         """
         Non-uniform sampling of t to importance_sampling. See [1,2] for more details.
