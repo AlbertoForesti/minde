@@ -166,15 +166,17 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
 
     def validation_step(self, batch, batch_idx):
         self.eval()
+
         with torch.no_grad():
             loss = self.sde.train_step(batch, self.score_forward).mean()
-            samples = self.sde.generate_samples(self.score_inference, bs=4)
-            samples = samples[:,0].unsqueeze(1)
-            images = samples / 2 + 0.5 # [-1,+1] -> [0,1]
-            images = (images * 255.0) # [0,1] -> [0,255]
-            images = images.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
-            grid = torchvision.utils.make_grid(samples)  # Create a grid of images
-            self.logger.experiment.add_image("Generated Samples", grid, self.current_epoch)
+            if self.args.inference.generate_samples:
+                samples = self.sde.generate_samples(self.score_inference, input_shape=self.sizes[0], bs=4)
+                samples = samples[:,0].unsqueeze(1)
+                images = samples / 2 + 0.5 # [-1,+1] -> [0,1]
+                images = (images * 255.0) # [0,1] -> [0,255]
+                images = images.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
+                grid = torchvision.utils.make_grid(samples)  # Create a grid of images
+                self.logger.experiment.add_image("Generated Samples", grid, self.current_epoch)
             self.log("loss_test", loss)
             return {"loss": loss}
 

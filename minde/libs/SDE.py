@@ -95,6 +95,7 @@ class VP_SDE():
         """
 
         x_0 = concat_vect(data)
+
         bs = x_0.size(0)
 
         if self.importance_sampling:
@@ -228,7 +229,7 @@ class VP_SDE():
 
         return x, x_mean
     
-    def generate_samples(self, score_net, bs=512, steps = 100):
+    def generate_samples(self, score_net, input_shape, bs=512, steps = 100):
         """
         Generate samples from the SDE model.
         """

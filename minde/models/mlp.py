@@ -205,7 +205,10 @@ class UnetMLP_simple(nn.Module):
     def forward(self, x, t=None, std=None):
         t = t.reshape(t.size(0), self.nb_var)
 
-        x = self.init_lin(x.float())
+        try:        
+            x = self.init_lin(x.float())
+        except:
+            raise UserWarning(f"x shape {x.shape} x.float() shape {x.float().shape} t shape {t.shape}m init_lim input dim {self.init_lin.in_features}")
 
         r = x.clone()
 

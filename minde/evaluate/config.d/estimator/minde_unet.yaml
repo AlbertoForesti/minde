@@ -25,3 +25,4 @@ estimator:
       importance_sampling: False
       sigma: 1.0
       bs: 512
+      generate_samples: True
