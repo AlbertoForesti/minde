@@ -3,6 +3,8 @@
 estimator:
   _target_: minde.minde.MINDE
   args:
+    log_example_images: False
+    return_denoised: False
     model:
       arch: "conv" # "conv"
       use_ema: True

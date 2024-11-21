@@ -54,7 +54,17 @@ def run_test(config : DictConfig) -> None:
         estimator       = instantiate(config["estimator"])
 
         x, y = random_variable.rvs(config["n_samples"])
-        results["mutual_information"]["values"].append(estimator(x, y))
+        if config["single_sample_dataset"]:
+            x = x[0]
+            y = y[0]
+            # Repeat the sample to match the number of samples.
+            x_expanded = numpy.expand_dims(x, axis=0)  # Shape becomes (1, 16, 16)
+            y_expanded = numpy.expand_dims(y, axis=0)
+
+            # Repeat x and y along the new axis to get shape (n, 16, 16)
+            x = numpy.repeat(x_expanded, repeats=config["n_samples"], axis=0)
+            y = numpy.repeat(y_expanded, repeats=config["n_samples"], axis=0)
+        results["mutual_information"]["values"].append(estimator(x, x))
         torch.cuda.empty_cache()
 
     values, mean, std = register_values(results["mutual_information"]["values"])

@@ -3,13 +3,15 @@
 estimator:
   _target_: minde.minde.MINDE
   args:
+    log_example_images: False
+    return_denoised: False
     model:
       arch: "mlp" # "conv"
       use_ema: True
       preprocessing: "rescale"
       hidden_dim: 32
     training:
-      lr: 1e-5
+      lr: 1e-2
       bs: 512
       max_epochs: 500
       test_epoch: 50

@@ -3,7 +3,7 @@ import torch
 import torchvision
 import pytorch_lightning as pl
 from minde.libs.SDE import VP_SDE
-from minde.libs.util import EMA,concat_vect, deconcat, marginalize_data, cond_x_data , get_samples, array_to_dataset
+from minde.libs.util import EMA,concat_vect, deconcat, marginalize_data, cond_x_data , get_samples, array_to_dataset, log_images
 from minde.libs.info_measures import mi_cond,mi_cond_sigma,mi_joint,mi_joint_sigma 
 from minde.models.mlp import UnetMLP_simple
 from minde.models.conv import UnetConv2D_simple
@@ -144,13 +144,30 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         self.test_samples = get_samples(test_loader,device="cuda"if self.args.training.accelerator == "gpu" else "cpu")
         args = self.args
         CHECKPOINT_DIR = args.training.checkpoint_dir
+
+        logger=pl.loggers.TensorBoardLogger(save_dir=CHECKPOINT_DIR)
         
-        trainer = pl.Trainer(logger=pl.loggers.TensorBoardLogger(save_dir=CHECKPOINT_DIR),
+        trainer = pl.Trainer(logger=logger,
                          default_root_dir=CHECKPOINT_DIR,
                          accelerator=self.args.training.accelerator,
                          devices=self.args.training.devices,
                          max_epochs=self.args.training.max_epochs, # profiler="pytorch",
                          check_val_every_n_epoch=self.args.training.check_val_every_n_epoch)  
+        
+        if self.args.log_example_images:
+            samples = get_samples(train_loader, device="cuda" if self.args.training.accelerator == "gpu" else "cpu", N=1)
+            x = samples["X"][:,0]
+            x = x / 2 + 0.5 # [-1,+1] -> [0,1]
+            x = (x * 255.0) # [0,1] -> [0,255]
+            x = x.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
+            logger.experiment.add_image("Example x", x, 0)
+
+            y = samples["Y"][:,0]
+            y = y / 2 + 0.5 # [-1,+1] -> [0,1]
+            y = (y * 255.0) # [0,1] -> [0,255]
+            y = y.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
+            logger.experiment.add_image("Example y", y, 0)
+
         trainer.fit(model=self, train_dataloaders=train_loader,
                 val_dataloaders=test_loader)
     
@@ -168,15 +185,18 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         self.eval()
 
         with torch.no_grad():
-            loss = self.sde.train_step(batch, self.score_forward).mean()
+            if self.args.return_denoised:
+                loss, x_denoised, x_noisy = self.sde.train_step(batch, self.score_forward, return_denoised=self.args.return_denoised)
+                assert x_denoised.shape[1] == 2, f"Expected x_denoised to have shape (n_samples, 2, 16, 16) but got {x_denoised.shape}"
+                log_images(self.logger, x_denoised, self.current_epoch, "Denoised Images", 16)
+                log_images(self.logger, concat_vect(batch), self.current_epoch, "Original Images", 16)
+                log_images(self.logger, x_noisy, self.current_epoch, "Noisy Images", 16)
+                loss = loss.mean()
+            else:
+                loss = self.sde.train_step(batch, self.score_forward).mean()
             if self.args.inference.generate_samples:
                 samples = self.sde.generate_samples(self.score_inference, input_shape=self.sizes[0], bs=4)
-                samples = samples[:,0].unsqueeze(1)
-                images = samples / 2 + 0.5 # [-1,+1] -> [0,1]
-                images = (images * 255.0) # [0,1] -> [0,255]
-                images = images.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
-                grid = torchvision.utils.make_grid(samples)  # Create a grid of images
-                self.logger.experiment.add_image("Generated Samples", grid, self.current_epoch)
+                log_images(self.logger, samples, self.current_epoch, "Generated Samples")
             self.log("loss_test", loss)
             return {"loss": loss}
 

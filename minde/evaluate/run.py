@@ -38,39 +38,38 @@ def register_values(values):
 
 @hydra.main(version_base=None, config_path="./config.d", config_name="config")
 def run_test(config : DictConfig) -> None:
-    # try:
-    bebeziana.seed_everything(config["seed"], to_be_seeded=config["to_be_seeded"])
+    try:
+        bebeziana.seed_everything(config["seed"], to_be_seeded=config["to_be_seeded"])
 
-    # Resolving some parts of the config and storing them separately for later post-processing.
-    setup = {}
-    setup["estimator"]    = OmegaConf.to_container(config["estimator"], resolve=True)
-    setup["distribution"] = OmegaConf.to_container(config["distribution"], resolve=True)
+        # Resolving some parts of the config and storing them separately for later post-processing.
+        setup = {}
+        setup["estimator"]    = OmegaConf.to_container(config["estimator"], resolve=True)
+        setup["distribution"] = OmegaConf.to_container(config["distribution"], resolve=True)
 
-    # Results for post-processing.
-    results = {}
-    results["mutual_information"] = {"values": []}
+        # Results for post-processing.
+        results = {}
+        results["mutual_information"] = {"values": []}
 
-    for index in trange(config["n_runs"]):
-        random_variable = instantiate(config["distribution"])
-        estimator       = instantiate(config["estimator"])
+        for index in trange(config["n_runs"]):
+            random_variable = instantiate(config["distribution"])
+            estimator       = instantiate(config["estimator"])
 
-        x, y = random_variable.rvs(config["n_samples"])
-        results["mutual_information"]["values"].append(estimator(x, y))
-        torch.cuda.empty_cache()
+            x, y = random_variable.rvs(config["n_samples"])
+            results["mutual_information"]["values"].append(estimator(x, y))
+            torch.cuda.empty_cache()
 
-    values, mean, std = register_values(results["mutual_information"]["values"])
+        values, mean, std = register_values(results["mutual_information"]["values"])
 
-    results["mutual_information"]["values"] = values
-    results["mutual_information"]["mean"]   = mean
-    results["mutual_information"]["std"]    = std
+        results["mutual_information"]["values"] = values
+        results["mutual_information"]["mean"]   = mean
+        results["mutual_information"]["std"]    = std
 
-    path = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
-    with open(path / "setup.yaml", 'w') as file:
-        yaml.dump(setup, file, default_flow_style=False)
-    with open(path / "results.yaml", 'w') as file:
-        yaml.dump(results, file, default_flow_style=False)
-    print("Experiment completed successfully.")
-    """
+        path = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
+        with open(path / "setup.yaml", 'w') as file:
+            yaml.dump(setup, file, default_flow_style=False)
+        with open(path / "results.yaml", 'w') as file:
+            yaml.dump(results, file, default_flow_style=False)
+        print("Experiment completed successfully.")
     except Exception as exception:
         print(exception) # Just ignoring exceptions so the sweeping continues."""
 

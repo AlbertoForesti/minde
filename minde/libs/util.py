@@ -3,6 +3,7 @@ import torch.nn as nn
 from torchvision.transforms import Compose, Resize, Lambda, Normalize
 import numpy as np
 import jax.numpy as jnp
+import torchvision
 from copy import deepcopy
 from typing import Union
 from minde.scripts.helper import SynthetitcDataset
@@ -148,3 +149,12 @@ def array_to_dataset(x: Union[np.array,jnp.array], y: Union[np.array,jnp.array])
     y = _array_to_tensor(y)
     dataset = SynthetitcDataset([x, y])
     return dataset
+
+def log_images(logger, samples, current_epoch, title="Images", max_samples=16):
+    for i, variable in enumerate(["x", "y"]):
+        var_samples = samples[:max_samples,i].unsqueeze(1)
+        images = var_samples / 2 + 0.5 # [-1,+1] -> [0,1]
+        images = (images * 255.0) # [0,1] -> [0,255]
+        images = images.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
+        grid = torchvision.utils.make_grid(var_samples)  # Create a grid of images
+        logger.experiment.add_image(title+"-"+variable, grid, current_epoch)

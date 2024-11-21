@@ -82,7 +82,7 @@ class VP_SDE():
             raise ValueError(f"Shape mismatch x_0={x_0.shape} mean={mean.shape} std={std.shape} z={z.shape}")
         return x_t, z, mean, std
 
-    def train_step(self, data, score_net, eps=1e-5):
+    def train_step(self, data, score_net, eps=1e-5, return_denoised=False):
         """
         Perform a single training step for the SDE model.
 
@@ -114,11 +114,11 @@ class VP_SDE():
 
         mask = self.masks[i.long(), :]
         mask_data = expand_mask(mask, self.var_sizes)
-        # Varaibles that are not marginal
+        # Variables that are not marginal
         mask_data_marg = (mask_data < 0).float()
-        # Varaibles that will be diffused
+        # Variables that will be diffused
         mask_data_diffused = mask_data.clip(0, 1)
-        x_t, Z, _, _ = self.sample(x_0=x_0, t=t)
+        x_t, Z, mean, std = self.sample(x_0=x_0, t=t)
 
         try:
             x_t = mask_data_diffused * x_t + (1 - mask_data_diffused) * x_0
@@ -133,6 +133,7 @@ class VP_SDE():
             raise ValueError(f"Shape mismatch output={output.shape} mask_data_diffused={mask_data_diffused.shape}")
         Z = Z * mask_data_diffused
 
+        x_denoised = (x_t - std * score)/mean
         #Score matching of diffused data reweithed proportionnaly to the size of the diffused data.
         
         # Flatten the data
@@ -148,6 +149,9 @@ class VP_SDE():
             raise ValueError(f"Shape mismatch total_size={total_size} n_diff={n_diff.shape} bs={bs}")
         loss = (weight * (torch.square(score - Z))).sum(1, keepdim=False)/n_diff
 
+        if return_denoised:
+            return loss, x_denoised, x_t
+        
         return loss
 
 
@@ -236,12 +240,15 @@ class VP_SDE():
         dt = self.T / steps
         sizes = [2, 16, 16]
         x = torch.randn(bs, *sizes, device=self.device)
+        x[:,1,:,:] = 0
         self.timesteps = torch.linspace(self.T, 0, steps + 1, device=self.device)
         for i in range(steps):
             t = self.T - i * dt
             t = torch.ones(bs, 1, device=self.device) * t
             score = score_net(x, t=t, mask=torch.tensor([1,1], device=self.device), std=None)
             x, x_mean = self.step_pred(score, x, t)
+            x[:,1,:,:] = 0
+        x_mean[:,1,:,:] = 0
         return x_mean
     
     def sample_importance_sampling_t(self, shape):

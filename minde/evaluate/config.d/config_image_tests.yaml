@@ -1,4 +1,4 @@
-n_runs: 10
+n_runs: 1
 seed: 42
 to_be_seeded:
   - basic
@@ -6,8 +6,9 @@ to_be_seeded:
   - torch
 
 default_grid:
-  #mutual_information: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0
-  dimensionality: range(4, 5)
+  mutual_information: range(0.0, 11.0)
+  single_value: 1.0
+  dimensionality: 3
 
 hydra:
   mode: MULTIRUN
@@ -17,6 +18,7 @@ hydra:
   sweeper:
     max_batch_size: 100 # Makes startup faster, see https://github.com/facebookresearch/hydra/issues/1324.
     params:
-      ++distribution.base_rv.mutual_information: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0
-      ++n_samples: 10000
-      ++estimator.args.inference.type: j, c
+      ++distribution.base_rv.mutual_information: ${default_grid.single_value}
+      ++n_samples: 100000
+      ++estimator.args.inference.type: c
+      ++single_sample_dataset: True

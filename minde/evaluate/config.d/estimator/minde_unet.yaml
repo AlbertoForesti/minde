@@ -3,6 +3,8 @@
 estimator:
   _target_: minde.minde.MINDE
   args:
+    log_example_images: True
+    return_denoised: True
     model:
       arch: "unet"
       use_ema: True
