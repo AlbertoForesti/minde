@@ -1,1 +1,1 @@
-python -m run --config-name config_mixed --multirun +estimator=minde +distribution=[ShiftedNormal]
+python -m run --config-name config --multirun +estimator=minde +distribution=[categorical]
