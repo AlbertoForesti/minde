@@ -36,6 +36,8 @@ def mi_cond(s_marg ,s_cond, g, importance_sampling):
 
     s_marg = s_marg.view(M,-1)
     s_cond = s_cond.view(M,-1)
+
+    # raise UserWarning(f"Some shapes: s_marg={s_marg.shape}, s_cond={s_cond.shape}, g={g.shape}")
     
     if importance_sampling:
         mi = const *0.5* ((s_marg - s_cond  )**2).sum()/ M

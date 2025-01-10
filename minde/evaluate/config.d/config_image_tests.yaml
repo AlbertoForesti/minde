@@ -10,6 +10,8 @@ default_grid:
   single_value: 1.0
   dimensionality: 3
 
+data_type: image
+
 hydra:
   mode: MULTIRUN
   sweep:
@@ -19,6 +21,10 @@ hydra:
     max_batch_size: 100 # Makes startup faster, see https://github.com/facebookresearch/hydra/issues/1324.
     params:
       ++distribution.base_rv.mutual_information: ${default_grid.single_value}
-      ++n_samples: 100000
+      ++n_samples: 10000
       ++estimator.args.inference.type: c
-      ++single_sample_dataset: True
+      ++estimator.args.training.max_epochs: 10000
+      ++estimator.args.training.check_val_every_n_epoch: 500
+      ++estimator.args.training.test_epochs: 500
+      ++estimator.args.inference.generate_samples: True
+      ++single_sample_dataset: False

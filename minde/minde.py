@@ -3,7 +3,7 @@ import torch
 import torchvision
 import pytorch_lightning as pl
 from minde.libs.SDE import VP_SDE
-from minde.libs.util import EMA,concat_vect, deconcat, marginalize_data, cond_x_data , get_samples, array_to_dataset, log_images
+from minde.libs.util import EMA,concat_vect, deconcat, marginalize_data, cond_x_data , get_samples, array_to_dataset, log_greyscale_images
 from minde.libs.info_measures import mi_cond,mi_cond_sigma,mi_joint,mi_joint_sigma 
 from minde.models.mlp import UnetMLP_simple
 from minde.models.conv import UnetConv2D_simple
@@ -56,11 +56,18 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             self.score = UNet(sample_size=self.sizes[0], in_channels=2, out_channels=2, latent_dim=hidden_dim)
         else:
             raise NotImplementedError
-        self.model_ema = EMA(self.score, decay=0.999) if self.args.model.use_ema else None
+        self.model_ema = EMA(self.score, decay=0.9999) if self.args.model.use_ema else None
 
         self.sde = VP_SDE(importance_sampling=self.args.inference.importance_sampling,
                           var_sizes=self.sizes,type =self.args.inference.type
                           )
+        if hasattr(self.args, 'checkpoint_path'):
+            state_dict = torch.load(self.args.checkpoint_path)
+            # raise UserWarning(f"state dict keys: {state_dict.keys()}, state dict of the score model: {state_dict['state_dict'].keys()}")
+            self.load_state_dict(state_dict['state_dict'])
+            self.resume_training = False
+        else:
+            self.resume_training = True
     
     def get_var_size(self, x: np.ndarray) -> int:
         if len(x.shape) == 2:
@@ -97,9 +104,25 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             Standard deviation of the estimate, or None if `std=False`
         """
 
+        self.original_shapes = {
+            "X": x.shape[1:],
+            "Y": y.shape[1:]
+        }
+
         if self.args.model.arch == "mlp":
             x = x.reshape(x.shape[0], -1)
             y = y.reshape(y.shape[0], -1)
+            self.new_shape = (x.shape[1]+y.shape[1],)
+        else:
+            if len(x.shape) == 3:
+                x = x.reshape(x.shape[0], 1, x.shape[1], x.shape[2])
+            if len(y.shape) == 3:
+                y = y.reshape(y.shape[0], 1, y.shape[1], y.shape[2])
+            assert x.shape[2:] == y.shape[2:], "The input images must have the same size except for the channel dimension."
+            self.new_shape = (x.shape[1]+y.shape[1], *x.shape[2:])
+            self.original_shapes["X"] = x.shape[1:]
+            self.original_shapes["Y"] = y.shape[1:]
+
 
         try:
             x_size = self.get_var_size(x)
@@ -116,11 +139,30 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         self._check_arguments(x, y)
 
         data_set = array_to_dataset(x, y)
+
         train_loader = DataLoader(data_set, batch_size=self.args.training.bs, shuffle=True)
 
         # Something like that:
-        print("Entering fit")
-        self.fit(train_loader)
+        if self.resume_training:
+            print("Entering fit")
+            self.fit(train_loader)
+        else:
+            if hasattr(self.args.inference, 'checkpoint_dir'):
+                save_dir = self.args.inference.checkpoint_dir
+            elif hasattr(self.args.training, 'checkpoint_dir'):
+                save_dir = self.args.training.checkpoint_dir
+            else:
+                save_dir = "checkpoints"
+            logger=pl.loggers.TensorBoardLogger(save_dir=save_dir)
+            args_dict = vars(self.args)
+            logger.log_hyperparams(args_dict)
+            
+            self.to("cuda" if self.args.training.accelerator == "gpu" else "cpu")
+            self.logger_valid = logger
+
+            if self.args.inference.generate_samples:
+                samples = self.generate_samples(bs=16)
+                log_greyscale_images(self.logger, samples, self.global_step, "Generated Samples")
 
         data = {"X": data_set.x, "Y": data_set.y}
         #trained_model = self.trainer(self.model, x, y, **self.trainer_kwargs)
@@ -135,6 +177,21 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         print(f"Estimated MI (σ): {np.mean(mi_sigma)} ± {np.std(mi_sigma)}")
 
         return {"mi": mi, "mi_sigma": mi_sigma}
+
+    def generate_samples(self, bs: int=16):
+        if self.args.inference.type=="c":
+            mask = torch.tensor([1,-1]).to(self.device)
+        elif self.args.inference.type=="j":
+            mask = torch.tensor([1,1]).to(self.device)
+        else:
+            raise NotImplementedError
+        samples = self.sde.generate_samples(self.score_inference, input_shape=self.new_shape, mask=mask, bs=bs)
+        samples = deconcat(samples, self.var_list, self.sizes)
+        # raise UserWarning(f"Samples shape: {samples['X'].shape},{samples['Y'].shape}, type: {type(samples)}")
+
+        samples["X"] = samples["X"].reshape(-1, *self.original_shapes["X"])
+        samples["Y"] = samples["Y"].reshape(-1, *self.original_shapes["Y"])
+        return samples
     
     def fit(self,train_loader,test_loader=None):
 
@@ -151,8 +208,9 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                          default_root_dir=CHECKPOINT_DIR,
                          accelerator=self.args.training.accelerator,
                          devices=self.args.training.devices,
-                         max_epochs=self.args.training.max_epochs, # profiler="pytorch",
-                         check_val_every_n_epoch=self.args.training.check_val_every_n_epoch)  
+                         max_steps=self.args.training.max_steps, # profiler="pytorch",
+                         val_check_interval=self.args.training.val_check_interval,
+                         check_val_every_n_epoch=None)  
         
         if self.args.log_example_images:
             samples = get_samples(train_loader, device="cuda" if self.args.training.accelerator == "gpu" else "cpu", N=1)
@@ -167,6 +225,9 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             y = (y * 255.0) # [0,1] -> [0,255]
             y = y.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
             logger.experiment.add_image("Example y", y, 0)
+        
+        args_dict = vars(self.args)['_content']
+        logger.log_hyperparams(args_dict)
 
         trainer.fit(model=self, train_dataloaders=train_loader,
                 val_dataloaders=test_loader)
@@ -188,24 +249,23 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             if self.args.return_denoised:
                 loss, x_denoised, x_noisy = self.sde.train_step(batch, self.score_forward, return_denoised=self.args.return_denoised)
                 assert x_denoised.shape[1] == 2, f"Expected x_denoised to have shape (n_samples, 2, 16, 16) but got {x_denoised.shape}"
-                log_images(self.logger, x_denoised, self.current_epoch, "Denoised Images", 16)
-                log_images(self.logger, concat_vect(batch), self.current_epoch, "Original Images", 16)
-                log_images(self.logger, x_noisy, self.current_epoch, "Noisy Images", 16)
+                x_denoised = deconcat(x_denoised, self.var_list, self.sizes)
+                x_noisy = deconcat(x_noisy, self.var_list, self.sizes)
+                log_greyscale_images(self.logger, x_denoised, self.global_step, "Denoised Images", 16)
+                log_greyscale_images(self.logger, batch, self.global_step, "Original Images", 16)
+                log_greyscale_images(self.logger, x_noisy, self.global_step, "Noisy Images", 16)
                 loss = loss.mean()
             else:
                 loss = self.sde.train_step(batch, self.score_forward).mean()
             if self.args.inference.generate_samples:
-                samples = self.sde.generate_samples(self.score_inference, input_shape=self.sizes[0], bs=4)
-                log_images(self.logger, samples, self.current_epoch, "Generated Samples")
+                samples = self.generate_samples(bs=16)
+                log_greyscale_images(self.logger, samples, self.global_step, "Generated Samples")
             self.log("loss_test", loss)
             return {"loss": loss}
 
     def on_before_backward(self, loss: torch.Tensor) -> None:
         if self.model_ema:
             self.model_ema.update(self.score)
-
-    
-    
     
     def score_forward(self, x, t=None, mask=None, std=None):
         """
@@ -289,17 +349,16 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                 t = t * (1- cond)  + 0.0 * cond
                 t = t* (1-marg) + 1 * marg
 
-                return self.score(x, timestep=t)
+                return score(x, timestep=t)
             else:
                 raise NotImplementedError
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.score.parameters(), lr=self.args.training.lr)
         return optimizer
-
-    def on_train_epoch_end(self) -> None:
-        super().on_train_epoch_end()
-        if self.current_epoch % self.args.training.test_epoch == 0 and self.current_epoch != 0 and self.current_epoch> self.args.training.warmup_epochs:
+    
+    def on_train_batch_end(self, *args, **kwargs) -> None:
+        if self.global_step % self.args.training.val_check_interval == 0:
             self.logger_estimates()
 
     def infer_scores(self,z_t,t, data_0, std_w,marg_masks,cond_mask):
@@ -407,8 +466,11 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                                         sigma=self.args.inference.sigma,
                                         importance_sampling=self.args.inference.importance_sampling)
                     )
+        print(f"Std is {np.std(mi)}, std sigma is {np.std(mi_sigma)}")
         return np.mean(mi), np.mean(mi_sigma)
     
+    def compute_entropy(self, data=None, eps=1e-5):
+        raise NotImplementedError("Entropy estimation is not implemented yet.")
 
     def get_masks(self, var_list):
         """_summary_
@@ -439,7 +501,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
             self.eval()
             self.score.eval()
             mi, mi_sigma = self.compute_mi(data=self.test_samples)
-            print("Epoch: ",self.current_epoch," GT: ",np.round( self.gt, decimals=3 )  if self.gt != None else "Not given", "MINDE_estimate: ",np.round( mi, decimals=3 ),"MINDE_sigma_estimate: ",np.round( mi_sigma, decimals=3 ) )
+            print("Step: ",self.global_step," GT: ",np.round( self.gt, decimals=3 )  if self.gt != None else "Not given", "MINDE_estimate: ",np.round( mi, decimals=3 ),"MINDE_sigma_estimate: ",np.round( mi_sigma, decimals=3 ) )
 
             self.logger.experiment.add_scalars('Measures/mi',
                                                    {'gt': self.gt if self.gt != None else 0,

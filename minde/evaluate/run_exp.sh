@@ -1,1 +1,1 @@
-python -m run --config-name config --multirun +estimator=minde +distribution=[categorical]
+python -m run --config-name config --multirun +estimator=minde_mlp +distribution=[LogGammaExponential]

@@ -120,12 +120,9 @@ class VP_SDE():
         mask_data_diffused = mask_data.clip(0, 1)
         x_t, Z, mean, std = self.sample(x_0=x_0, t=t)
 
-        try:
-            x_t = mask_data_diffused * x_t + (1 - mask_data_diffused) * x_0
-        except:
-            raise ValueError(f"Shape mismatch x_t={x_t.shape} mask_data_diffused={mask_data_diffused.shape} x_0={x_0.shape}, mask_data={mask_data.shape}, mask={mask.shape}, mask_data_marg={mask_data_marg.shape}")
-
+        x_t = mask_data_diffused * x_t + (1 - mask_data_diffused) * x_0
         x_t = x_t * (1 - mask_data_marg) + torch.zeros_like(x_0, device=self.device) *mask_data_marg
+
         output = score_net(x_t, t=t, mask=mask, std=None)
         try:
             score = output * mask_data_diffused
@@ -233,22 +230,37 @@ class VP_SDE():
 
         return x, x_mean
     
-    def generate_samples(self, score_net, input_shape, bs=512, steps = 100):
+    def generate_samples(self, score_net, input_shape, mask, bs=512, steps = 100):
         """
         Generate samples from the SDE model.
         """
         dt = self.T / steps
-        sizes = [2, 16, 16]
-        x = torch.randn(bs, *sizes, device=self.device)
-        x[:,1,:,:] = 0
+        # sizes = [2, 16, 16]
+        x_0 = torch.randn(bs, *input_shape, device=self.device)
+        mask = mask.unsqueeze(0).expand(bs, -1)
+        mask_data = expand_mask(mask, self.var_sizes)
+        # Variables that are not marginal
+        mask_data_marg = (mask_data < 0).float()
+        # Variables that will be diffused
+        mask_data_diffused = mask_data.clip(0, 1)
+        # x[:,1,:,:] = 0
+        try:
+            x_0 = mask_data_diffused * x_0 + (1 - mask_data_diffused) * x_0
+        except:
+            raise ValueError(f"Shapes mismatch mask_data_diffused={mask_data_diffused.shape} x_0={x_0.shape}")
+        x_t = x_0 * (1 - mask_data_marg) + torch.zeros_like(x_0, device=self.device) *mask_data_marg
         self.timesteps = torch.linspace(self.T, 0, steps + 1, device=self.device)
         for i in range(steps):
             t = self.T - i * dt
             t = torch.ones(bs, 1, device=self.device) * t
-            score = score_net(x, t=t, mask=torch.tensor([1,1], device=self.device), std=None)
-            x, x_mean = self.step_pred(score, x, t)
-            x[:,1,:,:] = 0
-        x_mean[:,1,:,:] = 0
+            score = score_net(x_t, t=t, mask=mask, std=None)
+            x_t, x_mean = self.step_pred(score, x_t, t)
+            # x[:,1,:,:] = 0
+            x_t = mask_data_diffused * x_t + (1 - mask_data_diffused) * x_0
+            x_t = x_t * (1 - mask_data_marg) + torch.zeros_like(x_0, device=self.device) *mask_data_marg
+        # x_mean[:,1,:,:] = 0
+        x_mean = mask_data_diffused * x_mean + (1 - mask_data_diffused) * x_0
+        x_mean = x_mean * (1 - mask_data_marg) + torch.zeros_like(x_0, device=self.device) *mask_data_marg
         return x_mean
     
     def sample_importance_sampling_t(self, shape):

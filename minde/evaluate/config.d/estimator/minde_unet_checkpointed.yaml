@@ -5,6 +5,7 @@ estimator:
   args:
     log_example_images: True
     return_denoised: True
+    checkpoint_path: "/home/foresti/minde/minde/evaluate/minde/checkpoints_unet/lightning_logs/version_234_correct_generation_rectangles/checkpoints/epoch=9999-step=200000.ckpt"
     model:
       arch: "unet"
       use_ema: True
@@ -22,9 +23,10 @@ estimator:
       checkpoint_dir: "minde/checkpoints_unet"
       devices: 1
     inference:
-      type: "j"
+      type: "c"
       mc_iter: 10
       importance_sampling: False
       sigma: 1.0
       bs: 512
       generate_samples: True
+      checkpoint_dir: "minde/inference/checkpoints_unet"

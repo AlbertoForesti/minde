@@ -150,11 +150,15 @@ def array_to_dataset(x: Union[np.array,jnp.array], y: Union[np.array,jnp.array])
     dataset = SynthetitcDataset([x, y])
     return dataset
 
-def log_images(logger, samples, current_epoch, title="Images", max_samples=16):
-    for i, variable in enumerate(["x", "y"]):
-        var_samples = samples[:max_samples,i].unsqueeze(1)
-        images = var_samples / 2 + 0.5 # [-1,+1] -> [0,1]
+def log_greyscale_images(logger, samples, current_epoch, title="Images", max_samples=16):
+    for i, v in enumerate(samples.items()):
+        if i >= max_samples:
+            break
+        var, img = v
+        if len(img.shape) == 3:
+            img = img.unsqueeze(1)
+        images = img / 2 + 0.5 # [-1,+1] -> [0,1]
         images = (images * 255.0) # [0,1] -> [0,255]
         images = images.clamp(0, 255).to(torch.uint8) # Clamp to [0,255] and cast to uint8
-        grid = torchvision.utils.make_grid(var_samples)  # Create a grid of images
-        logger.experiment.add_image(title+"-"+variable, grid, current_epoch)
+        grid = torchvision.utils.make_grid(images)  # Create a grid of images
+        logger.experiment.add_image(title+"-"+var, grid, current_epoch)

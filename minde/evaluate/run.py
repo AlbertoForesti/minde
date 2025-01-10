@@ -71,6 +71,7 @@ def run_test(config : DictConfig) -> None:
             yaml.dump(results, file, default_flow_style=False)
         print("Experiment completed successfully.")
     except Exception as exception:
+        raise exception
         print(exception) # Just ignoring exceptions so the sweeping continues."""
 
 
