@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - samples: mnist
+
+distribution:
+  _target_: minde.libs.multiplicative_rv.MultiplicativeRV
+  samples: ${samples}
+  governing_rv:
+    _target_: mutinfo.distributions.base.SmoothedUniform
+    X_dim: 1
+    Y_dim: 1
+    mutual_information: ${distribution.mutual_information}
+
+distribution_key: MultiplicativeRV

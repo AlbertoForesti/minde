@@ -1,0 +1,13 @@
+# @package _global_
+samples:
+  _target_: torchvision.datasets.MNIST
+  root: ${oc.env:DATASETS_ROOT, data}
+  train: true
+  download: true
+  transform:
+    _target_: torchvision.transforms.Compose
+    transforms:
+      - _target_: torchvision.transforms.ToTensor
+      - _target_: torchvision.transforms.Normalize
+        mean: [0.1307]
+        std: [0.3081]
