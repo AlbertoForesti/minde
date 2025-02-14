@@ -21,7 +21,7 @@ estimator:
       nb_workers: 8
       accelerator: "gpu"
       warmup_epochs: 0
-      check_val_every_n_epoch: 500
+      val_check_interval: 5000
       checkpoint_dir: "minde/checkpoints_unet"
       devices: [0]
     inference:
