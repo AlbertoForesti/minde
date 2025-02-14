@@ -1,1 +1,1 @@
-python -m run --config-name config --multirun +estimator=minde_mlp +distribution=[LogGammaExponential]
+python -m run_img_exp --config-name config_image_tests --multirun +estimator=minde_unet +distribution=[rectangle]

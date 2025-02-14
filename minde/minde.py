@@ -53,7 +53,7 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                                            time_dim=hidden_dim, nb_var=2)
         elif self.args.model.arch == "unet":
             assert self.sizes[0] == self.sizes[1], "The input variables must have the same size for the UNet architecture."
-            self.score = UNet(sample_size=self.sizes[0], in_channels=2, out_channels=2, latent_dim=hidden_dim)
+            self.score = UNet(sample_size=self.sizes[0], in_channels=2, out_channels=2, latent_dim=hidden_dim, norm_num_groups=self.args.model.norm_num_groups)
         else:
             raise NotImplementedError
         self.model_ema = EMA(self.score, decay=0.9999) if self.args.model.use_ema else None
@@ -61,13 +61,11 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         self.sde = VP_SDE(importance_sampling=self.args.inference.importance_sampling,
                           var_sizes=self.sizes,type =self.args.inference.type
                           )
+        self.resume_training = True
         if hasattr(self.args, 'checkpoint_path'):
             state_dict = torch.load(self.args.checkpoint_path)
             # raise UserWarning(f"state dict keys: {state_dict.keys()}, state dict of the score model: {state_dict['state_dict'].keys()}")
             self.load_state_dict(state_dict['state_dict'])
-            self.resume_training = False
-        else:
-            self.resume_training = True
     
     def get_var_size(self, x: np.ndarray) -> int:
         if len(x.shape) == 2:
@@ -155,7 +153,11 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                 save_dir = "checkpoints"
             logger=pl.loggers.TensorBoardLogger(save_dir=save_dir)
             args_dict = vars(self.args)
-            logger.log_hyperparams(args_dict)
+            try:
+                logger.log_hyperparams(args_dict)
+            except:
+                args_dict = args_dict['_content']
+                logger.log_hyperparams(args_dict)
             
             self.to("cuda" if self.args.training.accelerator == "gpu" else "cpu")
             self.logger_valid = logger
@@ -241,12 +243,16 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
         loss = self.sde.train_step(batch, self.score_forward).mean()
         self.log("loss", loss)
         return {"loss": loss}
+    
+    def on_validation_epoch_start(self):
+        self.logged_denoised = False
+        self.logged_generated = False
 
     def validation_step(self, batch, batch_idx):
         self.eval()
 
         with torch.no_grad():
-            if self.args.return_denoised:
+            if self.args.return_denoised and not self.logged_denoised:
                 loss, x_denoised, x_noisy = self.sde.train_step(batch, self.score_forward, return_denoised=self.args.return_denoised)
                 assert x_denoised.shape[1] == 2, f"Expected x_denoised to have shape (n_samples, 2, 16, 16) but got {x_denoised.shape}"
                 x_denoised = deconcat(x_denoised, self.var_list, self.sizes)
@@ -255,11 +261,13 @@ class MINDE(pl.LightningModule, MutualInformationEstimator):
                 log_greyscale_images(self.logger, batch, self.global_step, "Original Images", 16)
                 log_greyscale_images(self.logger, x_noisy, self.global_step, "Noisy Images", 16)
                 loss = loss.mean()
+                self.logged_denoised = True
             else:
                 loss = self.sde.train_step(batch, self.score_forward).mean()
-            if self.args.inference.generate_samples:
+            if self.args.inference.generate_samples and not self.logged_generated:
                 samples = self.generate_samples(bs=16)
-                log_greyscale_images(self.logger, samples, self.global_step, "Generated Samples")
+                log_greyscale_images(self.logger, samples, self.global_step, "Generated Samples", 16)
+                self.logged_generated = True
             self.log("loss_test", loss)
             return {"loss": loss}
 

@@ -23,8 +23,3 @@ hydra:
       ++distribution.base_rv.mutual_information: ${default_grid.single_value}
       ++n_samples: 10000
       ++estimator.args.inference.type: c
-      ++estimator.args.training.max_epochs: 10000
-      ++estimator.args.training.check_val_every_n_epoch: 500
-      ++estimator.args.training.test_epochs: 500
-      ++estimator.args.inference.generate_samples: True
-      ++single_sample_dataset: False

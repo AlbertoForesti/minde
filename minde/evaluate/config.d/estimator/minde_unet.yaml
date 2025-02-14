@@ -5,26 +5,29 @@ estimator:
   args:
     log_example_images: True
     return_denoised: True
+    checkpoint_path: /home/foresti/minde/minde/evaluate/minde/checkpoints_unet/lightning_logs/version_261/checkpoints/epoch=18749-step=375000.ckpt
     model:
       arch: "unet"
       use_ema: True
       preprocessing: "rescale"
-      hidden_dim: 32
+      hidden_dim: 2
+      norm_num_groups: 2
     training:
       lr: 1e-5
       bs: 512
-      max_epochs: 10000
-      test_epoch: 500
+      max_steps: 2000000
+      val_check_interval: 5000
+      test_epoch: 5000
       nb_workers: 8
       accelerator: "gpu"
       warmup_epochs: 0
       check_val_every_n_epoch: 500
       checkpoint_dir: "minde/checkpoints_unet"
-      devices: 1
+      devices: [0]
     inference:
-      type: "j"
+      type: "c"
       mc_iter: 10
-      importance_sampling: False
+      importance_sampling: True
       sigma: 1.0
       bs: 512
       generate_samples: True

@@ -151,6 +151,7 @@ def array_to_dataset(x: Union[np.array,jnp.array], y: Union[np.array,jnp.array])
     return dataset
 
 def log_greyscale_images(logger, samples, current_epoch, title="Images", max_samples=16):
+    samples = {k: v[:max_samples] for k, v in samples.items()}
     for i, v in enumerate(samples.items()):
         if i >= max_samples:
             break

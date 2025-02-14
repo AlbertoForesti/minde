@@ -19,7 +19,7 @@ estimator:
       warmup_epochs: 0
       val_check_interval: 500
       checkpoint_dir: "minde/checkpoints_mlp"
-      devices: 1
+      devices: [4]
     inference:
       type: "c"
       mc_iter: 10
