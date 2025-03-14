@@ -1,4 +1,4 @@
-n_runs: 1
+n_runs: 10
 seed: 42
 to_be_seeded:
   - basic
@@ -7,7 +7,7 @@ to_be_seeded:
 
 default_grid:
   mutual_information: 1.0
-  nonzero_mutual_information: range(1.0, 11.0)
+  nonzero_mutual_information: 2,4
   dimensionality: range(1, 4)
 
 hydra:
@@ -18,6 +18,6 @@ hydra:
   sweeper:
     max_batch_size: 100 # Makes startup faster, see https://github.com/facebookresearch/hydra/issues/1324.
     params:
-      ++distribution.mutual_information: ${default_grid.mutual_information}
-      ++n_samples: 10000
-      ++estimator.args.inference.type: c
+      ++distribution.mutual_information: ${default_grid.nonzero_mutual_information}
+      ++n_samples: 5000
+      ++estimator.args.inference.type: c, j
